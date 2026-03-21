@@ -1,0 +1,58 @@
+{
+  "name": "dechonet-mcp",
+  "version": "1.0.0",
+  "description": "Domain security reconnaissance MCP server — 13 tools for AI agents. DNS, SSL, HTTP headers, email auth, port scan, ASN, RDAP and more. Free, no API key.",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "dechonet-mcp": "./build/index.js"
+  },
+  "files": [
+    "build",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsx src/index.ts",
+    "start:sse": "node build/sse.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "dns",
+    "ssl",
+    "domain",
+    "reconnaissance",
+    "osint",
+    "pentest",
+    "ai-agent",
+    "claude",
+    "cybersecurity",
+    "port-scan",
+    "email-auth",
+    "health-score"
+  ],
+  "homepage": "https://dechonet.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/node-man/dechonet",
+    "directory": "mcp"
+  },
+  "license": "MIT",
+  "author": "DechoNet <hello@dechonet.com>",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.8.0",
+    "tsx": "^4.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
