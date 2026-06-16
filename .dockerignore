@@ -1,0 +1,7 @@
+node_modules
+build
+.git
+.mcpregistry_github_token
+.mcpregistry_registry_token
+mcp-publisher
+*.log
