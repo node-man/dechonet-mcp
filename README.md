@@ -4,6 +4,8 @@ Domain security reconnaissance tools for AI agents via [Model Context Protocol](
 
 13 security tools — DNS, SSL, HTTP headers, email auth, port scan, propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subnet calc, and comprehensive security scan — callable from Claude Desktop and any MCP-compatible AI agent.
 
+**Part of [DechoNet](https://dechonet.com).** Every tool here is also a free web tool at **[dechonet.com](https://dechonet.com)** — no sign-up, no API key — backed by error-fix [guides](https://dechonet.com/guides). This package brings the same checks to AI agents.
+
 ## Quick Start (Claude Desktop)
 
 Add to your `claude_desktop_config.json`:
@@ -101,7 +103,7 @@ npm run start:sse # Run SSE server
 
 ## How It Works
 
-The MCP server calls DechoNet's public API (`https://dechonet.com/api/util/*`) and returns structured results with:
+The MCP server calls DechoNet's public API (`https://dechonet.com/api/util/*`) — the same backend as the [dechonet.com](https://dechonet.com) web tools — and returns structured results with:
 - **Status** (ok/warn/bad)
 - **KPIs** (key performance indicators per tool)
 - **Issues** with severity (critical/warning/info) and confidence levels
@@ -117,3 +119,13 @@ All data comes from public sources (DNS, HTTP headers, SSL certificates, RDAP). 
 | `DECHONET_URL` | `https://dechonet.com` | API base URL |
 | `DECHONET_LOCALE` | `en` | Response language (`en` or `ko`) |
 | `PORT` | `3100` | SSE server port |
+
+## About DechoNet
+
+[DechoNet](https://dechonet.com) is a domain security reconnaissance platform — distributed observation, cross-verification. The same diagnostics ship three ways: free web tools, error-fix guides, and this MCP server.
+
+- 🌐 **Web tools** (free, no sign-up): https://dechonet.com
+- 📘 **Guides** (fix common DNS/SSL/HTTP/email errors): https://dechonet.com/guides
+- 🐦 **X**: https://x.com/Dechonetwork
+
+MIT licensed. Issues and PRs welcome.
