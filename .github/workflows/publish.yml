@@ -1,0 +1,34 @@
+name: Publish to npm
+
+# Publishes dechonet-mcp to npm via npm Trusted Publishing (OIDC) — no
+# long-lived NPM_TOKEN. Fires when a GitHub Release is published; the release
+# tag should match the version in package.json (e.g. v1.0.2 → 1.0.2).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # REQUIRED: lets the job mint the OIDC token npm exchanges
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing needs npm >= 11.5.1, newer than Node 22 bundles.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+      - run: npm run build
+
+      # No NODE_AUTH_TOKEN: OIDC exchanges a short-lived token automatically.
+      # --provenance attaches a signed build-provenance attestation.
+      - run: npm publish --provenance --access public
