@@ -6,7 +6,7 @@ import { tools } from './tools.js';
 
 const server = new McpServer({
   name: 'dechonet',
-  version: '1.0.0',
+  version: '1.0.2',
 });
 
 // Register all 13 tools

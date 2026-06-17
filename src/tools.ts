@@ -94,9 +94,12 @@ export interface ToolDef {
 export const tools: ToolDef[] = [
   {
     name: 'dns_lookup',
-    description: 'Query DNS records (A, AAAA, MX, TXT, NS, SOA, CAA) for a domain. Checks DNSSEC, validates SPF/DMARC syntax, identifies misconfigurations with severity-rated diagnostics.',
+    description:
+      'Query DNS records (A, AAAA, MX, TXT, NS, SOA, CAA) for a domain and validate email-related records, including DNSSEC presence and SPF/DMARC syntax, returning severity-rated diagnostics. ' +
+      'Use this for a single authoritative answer about one domain. Use dns_propagation instead when you need to compare answers across multiple global resolvers (e.g., right after a change), or email_auth for a full SPF/DKIM/DMARC deliverability assessment. ' +
+      'Read-only; requires no API key or authentication; subject to rate limiting. Returns a text report: status, KPI summary, detected issues, and recommended actions.',
     schema: {
-      domain: z.string().describe('Domain name to query (e.g., example.com)'),
+      domain: z.string().describe("Registrable domain or hostname to query, without scheme or path (e.g., 'example.com' or 'mail.example.com'). Do not include 'http://' or a trailing slash."),
     },
     handler: async ({ domain }) => {
       try { return formatResult(await callApi(`/api/util/dns?query=${enc(domain)}`)); }
@@ -105,10 +108,13 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'ssl_check',
-    description: 'Verify SSL/TLS certificate — expiry, issuer, SAN, chain integrity, TLS version. Grades A+ to F based on certificate validity (40%), TLS version (25%), chain trust (15%), HSTS (20%).',
+    description:
+      "Inspect a host's served TLS/SSL certificate and connection: expiry date, issuer, SAN list, chain integrity, TLS version, and HSTS, returning an A+ to F grade weighted by certificate validity (40%), TLS version (25%), chain trust (15%), and HSTS (20%). " +
+      'Use this to diagnose certificate or HTTPS-handshake problems for one host. Use http_security instead to audit response security headers, or security_scan for an all-in-one domain report. ' +
+      'Read-only: it completes a TLS handshake but sends no application data; requires no API key; rate-limited. Returns a text report: grade, expiry/issuer KPIs, issues, and actions.',
     schema: {
-      host: z.string().describe('Hostname to check (e.g., example.com)'),
-      port: z.number().default(443).describe('Port number (default: 443)'),
+      host: z.string().describe("Hostname to inspect, without scheme (e.g., 'example.com'). The host portion of a pasted URL is also accepted."),
+      port: z.number().default(443).describe('TCP port for the TLS handshake. Defaults to 443 (standard HTTPS); set this only for a non-standard HTTPS port such as 8443.'),
     },
     handler: async ({ host, port }) => {
       try { return formatResult(await callApi(`/api/util/ssl?host=${enc(host)}&port=${port}`)); }
@@ -117,9 +123,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'http_security',
-    description: 'Trace HTTP redirects and audit security headers (CSP, HSTS, X-Frame-Options, COOP, CORP, COEP, Permissions-Policy). Grades A+ to F. Detects information leaks.',
+    description:
+      "Follow a URL's HTTP redirect chain and audit response security headers (CSP, HSTS, X-Frame-Options, COOP, CORP, COEP, Permissions-Policy), grading A+ to F and flagging information leaks such as server-version disclosure. " +
+      'Use this for HTTP-layer/header posture. Use ssl_check instead for certificate or TLS-handshake issues, or security_scan for a full domain report. ' +
+      'Read-only (an HTTP GET-style probe that sends no payload); requires no API key; rate-limited. Returns a text report: grade, header findings, redirect trace, issues, and actions.',
     schema: {
-      url: z.string().describe('URL to check (e.g., https://example.com)'),
+      url: z.string().describe("Full URL including scheme (e.g., 'https://example.com/path'). If the scheme is omitted, https:// is assumed. Redirects are followed starting from this URL."),
     },
     handler: async ({ url }) => {
       try { return formatResult(await callApi(`/api/util/http?url=${enc(url)}`)); }
@@ -128,9 +137,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'email_auth',
-    description: 'Check email authentication: MX records, SPF, DMARC, DKIM (15 selectors), BIMI, MTA-STS, TLS-RPT, DANE. Blacklist check across all MX hosts. Returns 0-100 deliverability score.',
+    description:
+      "Assess a domain's email authentication and deliverability posture: MX records, SPF, DMARC, DKIM (probes 15 common selectors), BIMI, MTA-STS, TLS-RPT, and DANE, plus a blacklist check across all MX hosts, returning a 0-100 deliverability score. " +
+      'Use this for a full sending/receiving readiness review of a domain. Use dns_lookup instead if you only need raw TXT/MX records, or email_header_analysis to diagnose a specific message that was already sent. ' +
+      'Read-only; requires no API key; rate-limited. Returns a text report: score, per-mechanism KPIs, issues, and actions.',
     schema: {
-      domain: z.string().describe('Domain or IP to check (e.g., example.com or 1.2.3.4)'),
+      domain: z.string().describe("Email domain to assess — the part after '@' (e.g., 'example.com'). An IP address is also accepted for reverse/PTR-based checks."),
     },
     handler: async ({ domain }) => {
       try { return formatResult(await callApi(`/api/util/email?query=${enc(domain)}`)); }
@@ -139,9 +151,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'port_scan',
-    description: 'Scan common TCP ports to identify open services. Covers HTTP, HTTPS, SSH, FTP, SMTP, DNS, databases. Shows port number, service name, and response time.',
+    description:
+      'Probe a host for a fixed set of common TCP ports (HTTP, HTTPS, SSH, FTP, SMTP, DNS, and common databases) and report which are open, the service name, and the response time. ' +
+      'BEHAVIOR: this makes an ACTIVE TCP connection to the target. It is non-intrusive — a connect probe only; it does not authenticate, send exploits, or transfer data — and changes nothing on the target (read-only), but the connection is visible in the target\'s logs, so only scan hosts you own or are explicitly authorized to test. ' +
+      'Use this to confirm which services are exposed. Use ssl_check or http_security instead to assess a specific service\'s configuration. Requires no API key; rate-limited. Returns a per-port open/closed list with service names.',
     schema: {
-      host: z.string().describe('Hostname or IP to scan (e.g., example.com or example.com:443)'),
+      host: z.string().describe("Hostname or IP to probe (e.g., 'example.com' or '203.0.113.10'). A 'host:port' form is accepted to hint a specific port. Only supply targets you own or are authorized to test."),
     },
     handler: async ({ host }) => {
       try { return formatResult(await callApi(`/api/util/port?host=${enc(host)}`)); }
@@ -150,10 +165,13 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'dns_propagation',
-    description: 'Check DNS propagation across 8+ global resolvers (Google, Cloudflare, Quad9, OpenDNS). Identifies which resolvers have stale cached values.',
+    description:
+      'Query one DNS record across 8+ global public resolvers (Google, Cloudflare, Quad9, OpenDNS, and more) simultaneously and report which resolvers return stale versus updated values. ' +
+      'Use this after changing a record to confirm worldwide propagation. Use dns_lookup instead for a single authoritative answer with SPF/DMARC validation. ' +
+      'Read-only; requires no API key; rate-limited. Returns per-resolver values and a consistency verdict.',
     schema: {
-      domain: z.string().describe('Domain to check'),
-      type: z.enum(['A', 'AAAA', 'MX', 'CNAME', 'TXT', 'NS']).default('A').describe('Record type'),
+      domain: z.string().describe("Domain whose record to compare across resolvers (e.g., 'example.com'), without scheme or path."),
+      type: z.enum(['A', 'AAAA', 'MX', 'CNAME', 'TXT', 'NS']).default('A').describe('DNS record type to compare across resolvers. Defaults to A (IPv4 address), the most common propagation check.'),
     },
     handler: async ({ domain, type }) => {
       try { return formatResult(await callApi(`/api/util/propagation?domain=${enc(domain)}&type=${type}`)); }
@@ -162,9 +180,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'reverse_dns',
-    description: 'Reverse DNS (PTR) lookup for any IPv4/IPv6. Verifies forward-confirmed rDNS (FCrDNS). Identifies hosting provider from PTR patterns.',
+    description:
+      "Resolve the PTR (reverse DNS) record for an IPv4 or IPv6 address and verify forward-confirmed reverse DNS (FCrDNS) by checking that the PTR hostname resolves back to the same IP. Infers the hosting provider from PTR naming patterns. " +
+      'Use this to validate mail-server rDNS or identify a single IP\'s host. Use asn_lookup instead for network/BGP ownership of the IP. ' +
+      'Read-only; requires no API key; rate-limited. Returns the PTR hostname, FCrDNS pass/fail, and a provider guess.',
     schema: {
-      ip: z.string().describe('IP address to look up (IPv4 or IPv6)'),
+      ip: z.string().describe("IP address to reverse-resolve, IPv4 or IPv6 (e.g., '8.8.8.8' or '2001:4860:4860::8888'). Must be an IP, not a hostname."),
     },
     handler: async ({ ip }) => {
       try { return formatResult(await callApi(`/api/util/reverse-dns?query=${enc(ip)}`)); }
@@ -173,9 +194,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'asn_lookup',
-    description: 'Look up ASN/BGP info for an IP or ASN number. Identifies network operator, prefixes, abuse contact. Classifies as cloud/CDN/ISP/hosting/enterprise.',
+    description:
+      'Look up Autonomous System (ASN) / BGP information for an IP address or AS number: the network operator, announced prefixes, abuse contact, and a classification (cloud, CDN, ISP, hosting, or enterprise). ' +
+      'Use this to identify who runs a network or whether an IP is cloud/CDN-hosted. Use reverse_dns instead for the host-level PTR name of a single IP. ' +
+      'Read-only; requires no API key; rate-limited. Returns operator, prefixes, classification, and abuse contact.',
     schema: {
-      query: z.string().describe('ASN (e.g., AS13335) or IP address'),
+      query: z.string().describe("An IP address (e.g., '1.1.1.1') or an AS number in 'AS####' form (e.g., 'AS13335')."),
     },
     handler: async ({ query }) => {
       try { return formatResult(await callApi(`/api/util/asn?query=${enc(query)}`)); }
@@ -184,9 +208,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'whois_lookup',
-    description: 'RDAP/WHOIS lookup for domain registration data: registrar, dates, nameservers, status flags. Detects clientHold, pendingDelete.',
+    description:
+      'Retrieve domain registration data via RDAP (with WHOIS fallback): registrar, creation/expiry/update dates, nameservers, and EPP status flags, highlighting risk states such as clientHold and pendingDelete. ' +
+      'Use this for ownership, lifecycle, and expiry questions about a registered domain. Use dns_lookup instead for live DNS records, or reverse_dns/asn_lookup for IP-level ownership. ' +
+      'Read-only; requires no API key; rate-limited. Returns registrar, key dates, nameservers, and status flags.',
     schema: {
-      domain: z.string().describe('Domain name to look up'),
+      domain: z.string().describe("Registered domain name to look up (e.g., 'example.com'). A subdomain is normalized to its registrable domain."),
     },
     handler: async ({ domain }) => {
       try { return formatResult(await callApi(`/api/util/rdap?query=${enc(domain)}`)); }
@@ -195,7 +222,10 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'ip_info',
-    description: 'Get public IP information: IPv4/IPv6, ISP, ASN, geolocation, proxy/VPN detection.',
+    description:
+      "Report information about the caller's own public IP as seen by the server: IPv4/IPv6 address, ISP, ASN, approximate geolocation, and proxy/VPN heuristics. " +
+      "Takes no input — it reflects the egress IP of THIS MCP server's network, which is usually NOT the end user's IP. Use this to discover the server's outbound IP or test connectivity. To inspect a specific, known IP instead, use asn_lookup or reverse_dns. " +
+      'Read-only; requires no API key; rate-limited.',
     schema: {},
     handler: async () => {
       try { return formatResult(await callApi('/api/util/ip')); }
@@ -204,9 +234,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'email_header_analysis',
-    description: 'Analyze email headers to trace delivery route, extract SPF/DKIM/DMARC results, detect delays and unencrypted hops.',
+    description:
+      'Parse raw email headers to reconstruct the delivery path (each Received hop in order), extract SPF/DKIM/DMARC authentication results, measure per-hop delays, and flag unencrypted (non-TLS) hops. ' +
+      'Use this to diagnose a specific message that was already delivered — spoofing, delays, or where mail was lost. Use email_auth instead to assess a domain\'s sending configuration before sending. ' +
+      'Read-only; requires no API key; rate-limited. INPUT is the full raw header block. OUTPUT is a text report containing: the ordered hop route, per-mechanism auth results (pass/fail), detected inter-hop delays, and the encryption status of each hop.',
     schema: {
-      headers: z.string().describe('Raw email headers to analyze (paste the full header text)'),
+      headers: z.string().describe("The complete raw email header block, copied verbatim — every line from the first 'Received:'/'From:' down to the blank line before the body. Paste as-is, including folded continuation lines; do not include the message body."),
     },
     handler: async ({ headers }) => {
       try {
@@ -223,9 +256,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'subnet_calc',
-    description: 'Calculate subnet details from CIDR notation: network/broadcast address, host range, usable hosts, wildcard mask.',
+    description:
+      'Compute IPv4 subnet details from CIDR notation entirely locally — no network call: network and broadcast addresses, usable host range, total usable hosts, subnet mask, and wildcard mask. /31 and /32 are handled per RFC 3021 (point-to-point / single host). ' +
+      'Use this for IPv4 address planning. It does not query DNS or contact any host, so it is purely computational. ' +
+      'Requires no API key and is NOT rate-limited (computed in-process). Returns the calculated fields as text.',
     schema: {
-      cidr: z.string().describe('IP with CIDR prefix (e.g., 192.168.1.0/24)'),
+      cidr: z.string().describe("IPv4 address with a CIDR prefix length 0-32 (e.g., '192.168.1.0/24'). IPv4 only; host bits may be any address inside the block."),
     },
     handler: async ({ cidr }) => {
       // Subnet calculation is client-side only, compute here
@@ -266,9 +302,12 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'security_scan',
-    description: 'Comprehensive security scan — runs DNS, SSL, HTTP, Email, Port, Propagation, Reverse DNS, ASN, and RDAP checks in parallel. Returns a 0-100 Health Score with A-F grade and prioritized actions.',
+    description:
+      'One-shot comprehensive audit of a domain: runs DNS, SSL, HTTP headers, email auth, port scan, DNS propagation, reverse DNS, and ASN/RDAP checks in parallel, then computes a 0-100 Health Score with an A-F grade and a prioritized action list. ' +
+      "Use this as the default starting point for \"is this domain healthy/secure?\" questions. Call the individual tools (e.g., ssl_check, email_auth) instead when you need depth on one area. " +
+      'BEHAVIOR: this includes an ACTIVE port_scan of the domain\'s host, so only run it on domains you own or are authorized to test. Read-only otherwise; requires no API key; rate-limited (it makes multiple backend calls). Returns the score, per-area breakdown, top actions, and per-area summaries.',
     schema: {
-      domain: z.string().describe('Domain to scan comprehensively (e.g., example.com)'),
+      domain: z.string().describe("Domain to audit end-to-end (e.g., 'example.com'). Scheme and path are stripped. NOTE: the host is also port-scanned, so use only targets you are authorized to test."),
     },
     handler: async ({ domain }) => {
       try {

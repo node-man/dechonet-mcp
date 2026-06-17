@@ -1,7 +1,8 @@
 {
   "name": "dechonet-mcp",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Domain security reconnaissance MCP server — 13 tools for AI agents. DNS, SSL, HTTP headers, email auth, port scan, ASN, RDAP and more. Free, no API key.",
+  "mcpName": "io.github.node-man/dechonet-mcp",
   "type": "module",
   "main": "build/index.js",
   "bin": {
@@ -38,8 +39,7 @@
   "homepage": "https://dechonet.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/node-man/dechonet",
-    "directory": "mcp"
+    "url": "https://github.com/node-man/dechonet-mcp"
   },
   "license": "MIT",
   "author": "DechoNet <hello@dechonet.com>",
