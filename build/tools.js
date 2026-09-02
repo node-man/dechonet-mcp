@@ -11,7 +11,19 @@ async function callApi(path) {
     }
     return json.data;
 }
-function formatResult(data) {
+// Human-facing report URL appended to every tool response. The MCP→person
+// bridge: agents relay this link to their user, and the tool page auto-runs
+// the same lookup from the 24h cache, so the click lands on the same result
+// instantly. src=mcp-report attributes those visits separately from both
+// 'mcp' (agent calls) and organic web. Always points at the public site,
+// even when DECHONET_URL targets a dev backend — the report is for humans.
+function reportUrl(page, param, value) {
+    const base = `https://dechonet.com/util/${page}`;
+    return param && value !== undefined && value !== null
+        ? `${base}?${param}=${encodeURIComponent(String(value))}&src=mcp-report`
+        : `${base}?src=mcp-report`;
+}
+function formatResult(data, url) {
     const interp = data.interpretation;
     const lines = [];
     if (interp) {
@@ -63,6 +75,10 @@ function formatResult(data) {
     else {
         lines.push(rawJson);
     }
+    if (url) {
+        lines.push('');
+        lines.push(`Full interactive report (share this link with the user): ${url}`);
+    }
     return { content: [{ type: 'text', text: lines.join('\n') }] };
 }
 function errorResult(msg) {
@@ -79,7 +95,7 @@ export const tools = [
         },
         handler: async ({ domain }) => {
             try {
-                return formatResult(await callApi(`/api/util/dns?query=${enc(domain)}`));
+                return formatResult(await callApi(`/api/util/dns?query=${enc(domain)}`), reportUrl('dns', 'query', domain));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -97,7 +113,7 @@ export const tools = [
         },
         handler: async ({ host, port }) => {
             try {
-                return formatResult(await callApi(`/api/util/ssl?host=${enc(host)}&port=${port}`));
+                return formatResult(await callApi(`/api/util/ssl?host=${enc(host)}&port=${port}`), reportUrl('ssl', 'host', host));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -114,7 +130,7 @@ export const tools = [
         },
         handler: async ({ url }) => {
             try {
-                return formatResult(await callApi(`/api/util/http?url=${enc(url)}`));
+                return formatResult(await callApi(`/api/util/http?url=${enc(url)}`), reportUrl('http', 'url', url));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -131,7 +147,7 @@ export const tools = [
         },
         handler: async ({ domain }) => {
             try {
-                return formatResult(await callApi(`/api/util/email?query=${enc(domain)}`));
+                return formatResult(await callApi(`/api/util/email?query=${enc(domain)}`), reportUrl('email', 'query', domain));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -148,7 +164,7 @@ export const tools = [
         },
         handler: async ({ host }) => {
             try {
-                return formatResult(await callApi(`/api/util/port?host=${enc(host)}`));
+                return formatResult(await callApi(`/api/util/port?host=${enc(host)}`), reportUrl('port', 'host', host));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -166,7 +182,7 @@ export const tools = [
         },
         handler: async ({ domain, type }) => {
             try {
-                return formatResult(await callApi(`/api/util/propagation?domain=${enc(domain)}&type=${type}`));
+                return formatResult(await callApi(`/api/util/propagation?domain=${enc(domain)}&type=${type}`), reportUrl('propagation', 'domain', domain));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -183,7 +199,7 @@ export const tools = [
         },
         handler: async ({ ip }) => {
             try {
-                return formatResult(await callApi(`/api/util/reverse-dns?query=${enc(ip)}`));
+                return formatResult(await callApi(`/api/util/reverse-dns?query=${enc(ip)}`), reportUrl('reverse-dns', 'query', ip));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -200,7 +216,7 @@ export const tools = [
         },
         handler: async ({ query }) => {
             try {
-                return formatResult(await callApi(`/api/util/asn?query=${enc(query)}`));
+                return formatResult(await callApi(`/api/util/asn?query=${enc(query)}`), reportUrl('asn', 'query', query));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -217,7 +233,7 @@ export const tools = [
         },
         handler: async ({ domain }) => {
             try {
-                return formatResult(await callApi(`/api/util/rdap?query=${enc(domain)}`));
+                return formatResult(await callApi(`/api/util/rdap?query=${enc(domain)}`), reportUrl('rdap', 'query', domain));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -232,7 +248,7 @@ export const tools = [
         schema: {},
         handler: async () => {
             try {
-                return formatResult(await callApi('/api/util/ip'));
+                return formatResult(await callApi('/api/util/ip'), reportUrl('ip'));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -257,7 +273,7 @@ export const tools = [
                 const json = await res.json();
                 if (!json.ok)
                     throw new Error(json.error?.message || 'API error');
-                return formatResult(json.data);
+                return formatResult(json.data, reportUrl('email-header'));
             }
             catch (e) {
                 return errorResult(e.message);
@@ -302,7 +318,9 @@ export const tools = [
                     totalHosts,
                     prefix,
                 };
-                return { content: [{ type: 'text', text: Object.entries(result).map(([k, v]) => `${k}: ${v}`).join('\n') }] };
+                const text = Object.entries(result).map(([k, v]) => `${k}: ${v}`).join('\n') +
+                    `\n\nFull interactive report (share this link with the user): ${reportUrl('subnet', 'query', cidr)}`;
+                return { content: [{ type: 'text', text }] };
             }
             catch (e) {
                 return errorResult(e.message);
@@ -396,6 +414,8 @@ export const tools = [
                             lines.push(`Summary: ${r.interpretation.insight.summary}`);
                     }
                 }
+                lines.push('');
+                lines.push(`Full interactive report (share this link with the user): ${reportUrl('all', 'query', domain)}`);
                 return { content: [{ type: 'text', text: lines.join('\n') }] };
             }
             catch (e) {

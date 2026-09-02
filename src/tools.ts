@@ -20,7 +20,20 @@ async function callApi(path: string): Promise<any> {
   return json.data;
 }
 
-function formatResult(data: any): { content: Array<{ type: 'text'; text: string }> } {
+// Human-facing report URL appended to every tool response. The MCP→person
+// bridge: agents relay this link to their user, and the tool page auto-runs
+// the same lookup from the 24h cache, so the click lands on the same result
+// instantly. src=mcp-report attributes those visits separately from both
+// 'mcp' (agent calls) and organic web. Always points at the public site,
+// even when DECHONET_URL targets a dev backend — the report is for humans.
+function reportUrl(page: string, param?: string, value?: string): string {
+  const base = `https://dechonet.com/util/${page}`;
+  return param && value !== undefined && value !== null
+    ? `${base}?${param}=${encodeURIComponent(String(value))}&src=mcp-report`
+    : `${base}?src=mcp-report`;
+}
+
+function formatResult(data: any, url?: string): { content: Array<{ type: 'text'; text: string }> } {
   const interp = data.interpretation;
   const lines: string[] = [];
 
@@ -77,6 +90,11 @@ function formatResult(data: any): { content: Array<{ type: 'text'; text: string 
     lines.push(rawJson);
   }
 
+  if (url) {
+    lines.push('');
+    lines.push(`Full interactive report (share this link with the user): ${url}`);
+  }
+
   return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
 }
 
@@ -102,7 +120,7 @@ export const tools: ToolDef[] = [
       domain: z.string().describe("Registrable domain or hostname to query, without scheme or path (e.g., 'example.com' or 'mail.example.com'). Do not include 'http://' or a trailing slash."),
     },
     handler: async ({ domain }) => {
-      try { return formatResult(await callApi(`/api/util/dns?query=${enc(domain)}`)); }
+      try { return formatResult(await callApi(`/api/util/dns?query=${enc(domain)}`), reportUrl('dns', 'query', domain)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -117,7 +135,7 @@ export const tools: ToolDef[] = [
       port: z.number().default(443).describe('TCP port for the TLS handshake. Defaults to 443 (standard HTTPS); set this only for a non-standard HTTPS port such as 8443.'),
     },
     handler: async ({ host, port }) => {
-      try { return formatResult(await callApi(`/api/util/ssl?host=${enc(host)}&port=${port}`)); }
+      try { return formatResult(await callApi(`/api/util/ssl?host=${enc(host)}&port=${port}`), reportUrl('ssl', 'host', host)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -131,7 +149,7 @@ export const tools: ToolDef[] = [
       url: z.string().describe("Full URL including scheme (e.g., 'https://example.com/path'). If the scheme is omitted, https:// is assumed. Redirects are followed starting from this URL."),
     },
     handler: async ({ url }) => {
-      try { return formatResult(await callApi(`/api/util/http?url=${enc(url)}`)); }
+      try { return formatResult(await callApi(`/api/util/http?url=${enc(url)}`), reportUrl('http', 'url', url)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -145,7 +163,7 @@ export const tools: ToolDef[] = [
       domain: z.string().describe("Email domain to assess — the part after '@' (e.g., 'example.com'). An IP address is also accepted for reverse/PTR-based checks."),
     },
     handler: async ({ domain }) => {
-      try { return formatResult(await callApi(`/api/util/email?query=${enc(domain)}`)); }
+      try { return formatResult(await callApi(`/api/util/email?query=${enc(domain)}`), reportUrl('email', 'query', domain)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -159,7 +177,7 @@ export const tools: ToolDef[] = [
       host: z.string().describe("Hostname or IP to probe (e.g., 'example.com' or '203.0.113.10'). A 'host:port' form is accepted to hint a specific port. Only supply targets you own or are authorized to test."),
     },
     handler: async ({ host }) => {
-      try { return formatResult(await callApi(`/api/util/port?host=${enc(host)}`)); }
+      try { return formatResult(await callApi(`/api/util/port?host=${enc(host)}`), reportUrl('port', 'host', host)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -174,7 +192,7 @@ export const tools: ToolDef[] = [
       type: z.enum(['A', 'AAAA', 'MX', 'CNAME', 'TXT', 'NS']).default('A').describe('DNS record type to compare across resolvers. Defaults to A (IPv4 address), the most common propagation check.'),
     },
     handler: async ({ domain, type }) => {
-      try { return formatResult(await callApi(`/api/util/propagation?domain=${enc(domain)}&type=${type}`)); }
+      try { return formatResult(await callApi(`/api/util/propagation?domain=${enc(domain)}&type=${type}`), reportUrl('propagation', 'domain', domain)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -188,7 +206,7 @@ export const tools: ToolDef[] = [
       ip: z.string().describe("IP address to reverse-resolve, IPv4 or IPv6 (e.g., '8.8.8.8' or '2001:4860:4860::8888'). Must be an IP, not a hostname."),
     },
     handler: async ({ ip }) => {
-      try { return formatResult(await callApi(`/api/util/reverse-dns?query=${enc(ip)}`)); }
+      try { return formatResult(await callApi(`/api/util/reverse-dns?query=${enc(ip)}`), reportUrl('reverse-dns', 'query', ip)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -202,7 +220,7 @@ export const tools: ToolDef[] = [
       query: z.string().describe("An IP address (e.g., '1.1.1.1') or an AS number in 'AS####' form (e.g., 'AS13335')."),
     },
     handler: async ({ query }) => {
-      try { return formatResult(await callApi(`/api/util/asn?query=${enc(query)}`)); }
+      try { return formatResult(await callApi(`/api/util/asn?query=${enc(query)}`), reportUrl('asn', 'query', query)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -216,7 +234,7 @@ export const tools: ToolDef[] = [
       domain: z.string().describe("Registered domain name to look up (e.g., 'example.com'). A subdomain is normalized to its registrable domain."),
     },
     handler: async ({ domain }) => {
-      try { return formatResult(await callApi(`/api/util/rdap?query=${enc(domain)}`)); }
+      try { return formatResult(await callApi(`/api/util/rdap?query=${enc(domain)}`), reportUrl('rdap', 'query', domain)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -228,7 +246,7 @@ export const tools: ToolDef[] = [
       'Read-only; requires no API key; rate-limited.',
     schema: {},
     handler: async () => {
-      try { return formatResult(await callApi('/api/util/ip')); }
+      try { return formatResult(await callApi('/api/util/ip'), reportUrl('ip')); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -250,7 +268,7 @@ export const tools: ToolDef[] = [
         });
         const json: ApiResponse = await res.json();
         if (!json.ok) throw new Error(json.error?.message || 'API error');
-        return formatResult(json.data);
+        return formatResult(json.data, reportUrl('email-header'));
       } catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -296,7 +314,9 @@ export const tools: ToolDef[] = [
           prefix,
         };
 
-        return { content: [{ type: 'text' as const, text: Object.entries(result).map(([k, v]) => `${k}: ${v}`).join('\n') }] };
+        const text = Object.entries(result).map(([k, v]) => `${k}: ${v}`).join('\n') +
+          `\n\nFull interactive report (share this link with the user): ${reportUrl('subnet', 'query', cidr)}`;
+        return { content: [{ type: 'text' as const, text }] };
       } catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -389,6 +409,8 @@ export const tools: ToolDef[] = [
           }
         }
 
+        lines.push('');
+        lines.push(`Full interactive report (share this link with the user): ${reportUrl('all', 'query', domain)}`);
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       } catch (e: any) { return errorResult(e.message); }
     },
