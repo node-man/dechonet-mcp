@@ -1,5 +1,7 @@
 # DechoNet MCP Server
 
+[![smithery badge](https://smithery.ai/badge/nodeman/dechonet-mcp)](https://smithery.ai/servers/nodeman/dechonet-mcp)
+
 Domain security reconnaissance tools for AI agents via [Model Context Protocol](https://modelcontextprotocol.io).
 
 13 security tools — DNS, SSL, HTTP headers, email auth, port scan, propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subnet calc, and comprehensive security scan — callable from Claude Desktop and any MCP-compatible AI agent.
