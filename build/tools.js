@@ -329,6 +329,46 @@ export const tools = [
         },
     },
     {
+        name: 'subdomain_discovery',
+        title: 'Subdomain Discovery',
+        outputSchema: interpOutputShape,
+        annotations: annotate('Subdomain Discovery'),
+        description: 'Enumerate the subdomains of a domain from Certificate Transparency logs — fully passive (no packets are sent to the target; CT logs are public records of every TLS certificate ever issued). Flags operational-looking names (dev, staging, admin, vpn, legacy) and wildcard certificates, because forgotten subdomains are a common takeover path. ' +
+            "Use this as the first recon step to map a domain's attack surface. Use dns_lookup to check whether a discovered name still resolves, or lookalike_domains for typosquat variants of the domain name itself. " +
+            'Read-only; requires no API key; rate-limited. Returns the subdomain count, risky-name count, wildcard flag, and the hostname list.',
+        schema: {
+            domain: z.string().describe("Registrable domain to enumerate (e.g., 'example.com'), without scheme or path. Subdomains found in CT logs for this domain are returned."),
+        },
+        handler: async ({ domain }) => {
+            try {
+                return formatResult(await callApi(`/api/util/subdomains?query=${enc(domain)}`), reportUrl('subdomains', 'query', domain));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'lookalike_domains',
+        title: 'Lookalike Domain Check',
+        outputSchema: interpOutputShape,
+        annotations: annotate('Lookalike Domain Check'),
+        description: 'Generate the typosquat/lookalike variants of a domain that phishers actually register — homoglyph swaps (l→1, o→0, rn→m), TLD swaps (.com→.co), character omissions, transpositions, repetitions, hyphenations — and check which of them are currently registered (live NS delegation via DoH). ' +
+            'Use this to assess brand-impersonation and phishing exposure for a domain the user is responsible for. A registered variant is NOT proof of abuse (it may be an unrelated legitimate site) — follow up with whois_lookup on each hit for its owner and registration date. ' +
+            'Read-only; requires no API key; rate-limited. Returns generated/checked counts and the registered variants with the technique that produced each.',
+        schema: {
+            domain: z.string().describe("Domain to protect (e.g., 'example.com'), without scheme or path. Variants of its label and TLD are generated and checked."),
+        },
+        handler: async ({ domain }) => {
+            try {
+                return formatResult(await callApi(`/api/util/lookalike?query=${enc(domain)}`), reportUrl('lookalike', 'query', domain));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
         name: 'ip_info',
         title: 'My IP Info',
         outputSchema: interpOutputShape,

@@ -2,7 +2,7 @@
 
 Domain security reconnaissance tools for AI agents via [Model Context Protocol](https://modelcontextprotocol.io).
 
-13 security tools — DNS, SSL, HTTP headers, email auth, port scan, propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subnet calc, and comprehensive security scan — callable from Claude Desktop and any MCP-compatible AI agent.
+15 security tools — DNS, SSL, HTTP headers, email auth, port scan, propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subnet calc, and comprehensive security scan — callable from Claude Desktop and any MCP-compatible AI agent.
 
 **Part of [DechoNet](https://dechonet.com).** Every tool here is also a free web tool at **[dechonet.com](https://dechonet.com)** — no sign-up, no API key — backed by error-fix [guides](https://dechonet.com/guides). This package brings the same checks to AI agents.
 

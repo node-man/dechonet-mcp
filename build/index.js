@@ -4,9 +4,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { tools } from './tools.js';
 const server = new McpServer({
     name: 'dechonet',
-    version: '1.0.5',
+    version: '1.1.0',
 });
-// Register all 13 tools. registerTool (not the legacy server.tool) so each
+// Register all tools. registerTool (not the legacy server.tool) so each
 // tool ships title, annotations, and an outputSchema — handlers return
 // structuredContent matching it alongside the text content.
 for (const tool of tools) {
