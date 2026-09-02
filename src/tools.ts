@@ -33,7 +33,75 @@ function reportUrl(page: string, param?: string, value?: string): string {
     : `${base}?src=mcp-report`;
 }
 
-function formatResult(data: any, url?: string): { content: Array<{ type: 'text'; text: string }> } {
+// Behavior hints per the MCP tool-annotations spec. All DechoNet tools are
+// read-only and idempotent; openWorldHint marks the ones that touch the
+// network (everything except subnet_calc).
+export interface ToolAnnotations {
+  title: string;
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+}
+
+const annotate = (title: string, openWorld = true): ToolAnnotations => ({
+  title,
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: openWorld,
+});
+
+// Structured output shared by every interpretation-backed tool (declared as
+// outputSchema; handlers return a matching structuredContent alongside the
+// text). Raw JSON stays text-only so structured results remain small.
+// SYNC with INTERP_OUTPUT_SCHEMA in the monorepo remote registry.
+const interpOutputShape = {
+  status: z.string().describe("Overall verdict, e.g. 'good' | 'warning' | 'bad' | 'info' | 'unknown'"),
+  summary: z.string().optional().describe('One-paragraph interpretation of the result'),
+  kpis: z.array(z.object({ label: z.string(), value: z.string() })).optional().describe('Key metrics as label/value pairs'),
+  issues: z.array(z.object({ severity: z.string(), key: z.string() })).optional().describe('Detected problems, severity-rated'),
+  actions: z.array(z.string()).optional().describe('Recommended next actions, most important first'),
+  grade: z.string().optional().describe('Letter grade (A+ to F) when the tool grades the target'),
+  score: z.number().optional().describe('0-100 score when the tool scores the target'),
+  reportUrl: z.string().describe('Human-facing interactive report for this exact lookup on dechonet.com'),
+};
+
+const subnetOutputShape = {
+  network: z.string().describe('Network address'),
+  broadcast: z.string().describe('Broadcast address'),
+  firstHost: z.string().describe('First usable host'),
+  lastHost: z.string().describe('Last usable host'),
+  subnetMask: z.string().describe('Dotted-decimal subnet mask'),
+  wildcardMask: z.string().describe('Wildcard (inverse) mask'),
+  totalHosts: z.number().describe('Usable host count'),
+  prefix: z.number().describe('CIDR prefix length'),
+  reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
+};
+
+const scanOutputShape = {
+  score: z.number().describe('Health Score 0-100'),
+  grade: z.string().describe('Letter grade A+ to F'),
+  areas: z.array(z.object({ area: z.string(), verdict: z.string() })).describe('Per-area verdicts'),
+  actions: z.array(z.string()).optional().describe('Top recommended actions'),
+  reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
+};
+
+function structuredFromInterp(data: any, url: string): Record<string, any> {
+  const interp = data?.interpretation;
+  const sc: Record<string, any> = { status: String(interp?.status ?? 'unknown'), reportUrl: url };
+  if (interp?.insight?.summary) sc.summary = String(interp.insight.summary);
+  if (interp?.kpis?.length) sc.kpis = interp.kpis.map((k: any) => ({ label: String(k.label), value: String(k.value) }));
+  if (interp?.issues?.length) sc.issues = interp.issues.map((i: any) => ({ severity: String(i.severity), key: String(i.key) }));
+  if (interp?.actionItems?.length) sc.actions = interp.actionItems.map((a: any) => String(a));
+  const grade = interp?.securityGrade ?? interp?.sslGrade;
+  if (grade) sc.grade = String(grade);
+  const score = interp?.securityScore ?? interp?.sslScore;
+  if (typeof score === 'number') sc.score = score;
+  return sc;
+}
+
+function formatResult(data: any, url?: string): { content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, any> } {
   const interp = data.interpretation;
   const lines: string[] = [];
 
@@ -95,7 +163,10 @@ function formatResult(data: any, url?: string): { content: Array<{ type: 'text';
     lines.push(`Full interactive report (share this link with the user): ${url}`);
   }
 
-  return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+  const result: { content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, any> } =
+    { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+  if (url) result.structuredContent = structuredFromInterp(data, url);
+  return result;
 }
 
 function errorResult(msg: string) {
@@ -104,14 +175,20 @@ function errorResult(msg: string) {
 
 export interface ToolDef {
   name: string;
+  title: string;
   description: string;
   schema: Record<string, z.ZodTypeAny>;
+  outputSchema: Record<string, z.ZodTypeAny>;
+  annotations: ToolAnnotations;
   handler: (args: any) => Promise<any>;
 }
 
 export const tools: ToolDef[] = [
   {
     name: 'dns_lookup',
+    title: 'DNS Lookup',
+    outputSchema: interpOutputShape,
+    annotations: annotate('DNS Lookup'),
     description:
       'Query DNS records (A, AAAA, MX, TXT, NS, SOA, CAA) for a domain and validate email-related records, including DNSSEC presence and SPF/DMARC syntax, returning severity-rated diagnostics. ' +
       'Use this for a single authoritative answer about one domain. Use dns_propagation instead when you need to compare answers across multiple global resolvers (e.g., right after a change), or email_auth for a full SPF/DKIM/DMARC deliverability assessment. ' +
@@ -126,6 +203,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'ssl_check',
+    title: 'SSL Certificate Check',
+    outputSchema: interpOutputShape,
+    annotations: annotate('SSL Certificate Check'),
     description:
       "Inspect a host's served TLS/SSL certificate and connection: expiry date, issuer, SAN list, chain integrity, TLS version, and HSTS, returning an A+ to F grade weighted by certificate validity (40%), TLS version (25%), chain trust (15%), and HSTS (20%). " +
       'Use this to diagnose certificate or HTTPS-handshake problems for one host. Use http_security instead to audit response security headers, or security_scan for an all-in-one domain report. ' +
@@ -141,6 +221,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'http_security',
+    title: 'HTTP Security Headers Audit',
+    outputSchema: interpOutputShape,
+    annotations: annotate('HTTP Security Headers Audit'),
     description:
       "Follow a URL's HTTP redirect chain and audit response security headers (CSP, HSTS, X-Frame-Options, COOP, CORP, COEP, Permissions-Policy), grading A+ to F and flagging information leaks such as server-version disclosure. " +
       'Use this for HTTP-layer/header posture. Use ssl_check instead for certificate or TLS-handshake issues, or security_scan for a full domain report. ' +
@@ -155,6 +238,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'email_auth',
+    title: 'Email Authentication Check',
+    outputSchema: interpOutputShape,
+    annotations: annotate('Email Authentication Check'),
     description:
       "Assess a domain's email authentication and deliverability posture: MX records, SPF, DMARC, DKIM (probes 15 common selectors), BIMI, MTA-STS, TLS-RPT, and DANE, plus a blacklist check across all MX hosts, returning a 0-100 deliverability score. " +
       'Use this for a full sending/receiving readiness review of a domain. Use dns_lookup instead if you only need raw TXT/MX records, or email_header_analysis to diagnose a specific message that was already sent. ' +
@@ -169,6 +255,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'port_scan',
+    title: 'Open Port Scan',
+    outputSchema: interpOutputShape,
+    annotations: annotate('Open Port Scan'),
     description:
       'Probe a host for a fixed set of common TCP ports (HTTP, HTTPS, SSH, FTP, SMTP, DNS, and common databases) and report which are open, the service name, and the response time. ' +
       'BEHAVIOR: this makes an ACTIVE TCP connection to the target. It is non-intrusive — a connect probe only; it does not authenticate, send exploits, or transfer data — and changes nothing on the target (read-only), but the connection is visible in the target\'s logs, so only scan hosts you own or are explicitly authorized to test. ' +
@@ -183,6 +272,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'dns_propagation',
+    title: 'DNS Propagation Check',
+    outputSchema: interpOutputShape,
+    annotations: annotate('DNS Propagation Check'),
     description:
       'Query one DNS record across 8+ global public resolvers (Google, Cloudflare, Quad9, OpenDNS, and more) simultaneously and report which resolvers return stale versus updated values. ' +
       'Use this after changing a record to confirm worldwide propagation. Use dns_lookup instead for a single authoritative answer with SPF/DMARC validation. ' +
@@ -198,6 +290,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'reverse_dns',
+    title: 'Reverse DNS (PTR) Lookup',
+    outputSchema: interpOutputShape,
+    annotations: annotate('Reverse DNS (PTR) Lookup'),
     description:
       "Resolve the PTR (reverse DNS) record for an IPv4 or IPv6 address and verify forward-confirmed reverse DNS (FCrDNS) by checking that the PTR hostname resolves back to the same IP. Infers the hosting provider from PTR naming patterns. " +
       'Use this to validate mail-server rDNS or identify a single IP\'s host. Use asn_lookup instead for network/BGP ownership of the IP. ' +
@@ -212,6 +307,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'asn_lookup',
+    title: 'ASN / BGP Lookup',
+    outputSchema: interpOutputShape,
+    annotations: annotate('ASN / BGP Lookup'),
     description:
       'Look up Autonomous System (ASN) / BGP information for an IP address or AS number: the network operator, announced prefixes, abuse contact, and a classification (cloud, CDN, ISP, hosting, or enterprise). ' +
       'Use this to identify who runs a network or whether an IP is cloud/CDN-hosted. Use reverse_dns instead for the host-level PTR name of a single IP. ' +
@@ -226,6 +324,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'whois_lookup',
+    title: 'WHOIS / RDAP Domain Lookup',
+    outputSchema: interpOutputShape,
+    annotations: annotate('WHOIS / RDAP Domain Lookup'),
     description:
       'Retrieve domain registration data via RDAP (with WHOIS fallback): registrar, creation/expiry/update dates, nameservers, and EPP status flags, highlighting risk states such as clientHold and pendingDelete. ' +
       'Use this for ownership, lifecycle, and expiry questions about a registered domain. Use dns_lookup instead for live DNS records, or reverse_dns/asn_lookup for IP-level ownership. ' +
@@ -240,6 +341,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'ip_info',
+    title: 'My IP Info',
+    outputSchema: interpOutputShape,
+    annotations: annotate('My IP Info'),
     description:
       "Report information about the caller's own public IP as seen by the server: IPv4/IPv6 address, ISP, ASN, approximate geolocation, and proxy/VPN heuristics. " +
       "Takes no input — it reflects the egress IP of THIS MCP server's network, which is usually NOT the end user's IP. Use this to discover the server's outbound IP or test connectivity. To inspect a specific, known IP instead, use asn_lookup or reverse_dns. " +
@@ -252,6 +356,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'email_header_analysis',
+    title: 'Email Header Analysis',
+    outputSchema: interpOutputShape,
+    annotations: annotate('Email Header Analysis'),
     description:
       'Parse raw email headers to reconstruct the delivery path (each Received hop in order), extract SPF/DKIM/DMARC authentication results, measure per-hop delays, and flag unencrypted (non-TLS) hops. ' +
       'Use this to diagnose a specific message that was already delivered — spoofing, delays, or where mail was lost. Use email_auth instead to assess a domain\'s sending configuration before sending. ' +
@@ -274,6 +381,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'subnet_calc',
+    title: 'IPv4 Subnet Calculator',
+    outputSchema: subnetOutputShape,
+    annotations: annotate('IPv4 Subnet Calculator', false),
     description:
       'Compute IPv4 subnet details from CIDR notation entirely locally — no network call: network and broadcast addresses, usable host range, total usable hosts, subnet mask, and wildcard mask. /31 and /32 are handled per RFC 3021 (point-to-point / single host). ' +
       'Use this for IPv4 address planning. It does not query DNS or contact any host, so it is purely computational. ' +
@@ -314,14 +424,18 @@ export const tools: ToolDef[] = [
           prefix,
         };
 
+        const url = reportUrl('subnet', 'query', cidr);
         const text = Object.entries(result).map(([k, v]) => `${k}: ${v}`).join('\n') +
-          `\n\nFull interactive report (share this link with the user): ${reportUrl('subnet', 'query', cidr)}`;
-        return { content: [{ type: 'text' as const, text }] };
+          `\n\nFull interactive report (share this link with the user): ${url}`;
+        return { content: [{ type: 'text' as const, text }], structuredContent: { ...result, reportUrl: url } };
       } catch (e: any) { return errorResult(e.message); }
     },
   },
   {
     name: 'security_scan',
+    title: 'Full Domain Security Scan',
+    outputSchema: scanOutputShape,
+    annotations: annotate('Full Domain Security Scan'),
     description:
       'One-shot comprehensive audit of a domain: runs DNS, SSL, HTTP headers, email auth, port scan, DNS propagation, reverse DNS, and ASN/RDAP checks in parallel, then computes a 0-100 Health Score with an A-F grade and a prioritized action list. ' +
       "Use this as the default starting point for \"is this domain healthy/secure?\" questions. Call the individual tools (e.g., ssl_check, email_auth) instead when you need depth on one area. " +
@@ -409,9 +523,18 @@ export const tools: ToolDef[] = [
           }
         }
 
+        const url = reportUrl('all', 'query', domain);
         lines.push('');
-        lines.push(`Full interactive report (share this link with the user): ${reportUrl('all', 'query', domain)}`);
-        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        lines.push(`Full interactive report (share this link with the user): ${url}`);
+        return {
+          content: [{ type: 'text' as const, text: lines.join('\n') }],
+          structuredContent: {
+            score, grade,
+            areas: areas.map((a) => { const i = a.indexOf(': '); return { area: a.slice(0, i), verdict: a.slice(i + 2) }; }),
+            ...(allActions.length > 0 ? { actions: allActions.slice(0, 5) } : {}),
+            reportUrl: url,
+          },
+        };
       } catch (e: any) { return errorResult(e.message); }
     },
   },
