@@ -62,6 +62,41 @@ const scanOutputShape = {
     actions: z.array(z.string()).optional().describe('Top recommended actions'),
     reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
 };
+// SYNC with OWASP_OUTPUT_SCHEMA in the monorepo remote registry.
+const owaspOutputShape = {
+    grade: z.string().describe('OWASP posture grade A+ to F, over the observable categories only'),
+    score: z.number().describe('0-100 across the categories that could be evaluated'),
+    checks: z.array(z.object({ code: z.string(), status: z.string(), findingCount: z.number().optional() }))
+        .describe('Per observable category: Secure Headers, A02, A05, A06'),
+    notObservable: z.array(z.string()).optional().describe('Top 10 categories NOT checked (need authenticated/active testing)'),
+    reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
+};
+// SYNC with IMPERSONATION_OUTPUT_SCHEMA in the monorepo remote registry.
+const impOutputShape = {
+    grade: z.string().describe('Exposure grade A+ (low exposure) to F (high exposure)'),
+    score: z.number().describe('0-100, higher = less exposed'),
+    typosquatCount: z.number().describe('Live third-party lookalike/typosquat domains (variants on the domain\'s own nameservers/IP are excluded)'),
+    riskySubdomainCount: z.number().describe('Exposed operational subdomains found'),
+    wildcard: z.boolean().optional().describe('Whether a wildcard certificate exists'),
+    reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
+};
+// SYNC with DOMAIN_CHANGES_OUTPUT_SCHEMA in the monorepo remote registry.
+const domainChangesOutputShape = {
+    domain: z.string(),
+    watched: z.boolean().describe('Whether the domain is under an active daily watch'),
+    changeCount: z.number().optional().describe('Number of changes recorded'),
+    changes: z.array(z.object({ endpoint: z.string().optional(), kind: z.string(), summary: z.string(), changedAt: z.string().optional() })).optional().describe('Recorded changes, newest first'),
+    reportUrl: z.string().describe('Where a human can start or manage monitoring'),
+};
+// SYNC with GOLIVE_OUTPUT_SCHEMA in the monorepo remote registry.
+const goliveOutputShape = {
+    verdict: z.string().describe("'ready' | 'caution' | 'not_ready'"),
+    passCount: z.number().optional(),
+    warnCount: z.number().optional(),
+    failCount: z.number().optional(),
+    checks: z.array(z.object({ id: z.string(), status: z.string() })).optional(),
+    reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
+};
 function structuredFromInterp(data, url) {
     const interp = data?.interpretation;
     const sc = { status: String(interp?.status ?? 'unknown'), reportUrl: url };
@@ -144,6 +179,192 @@ function formatResult(data, url) {
 }
 function errorResult(msg) {
     return { content: [{ type: 'text', text: `Error: ${msg}` }], isError: true };
+}
+// English category names + finding phrasings for owasp_check text output.
+// SYNC with OWASP_CAT / OWASP_FINDING in the monorepo remote registry.
+const OWASP_CAT = {
+    headers: 'Secure Headers', a02: 'A02 Cryptographic Failures',
+    a05: 'A05 Security Misconfiguration', a06: 'A06 Vulnerable & Outdated Components',
+    exposed_files: 'Exposed Sensitive Files (A01/A05)',
+};
+const OWASP_FINDING = {
+    header_missing: (d) => `Missing security header: ${d}`,
+    header_partial: (d) => `Partially-configured header: ${d}`,
+    info_leak: (d) => `Information disclosure: ${d}`,
+    version_disclosed: (d) => `Component version disclosed: ${d}`,
+    tls_unavailable: () => 'TLS not observable (no HTTPS or connection refused)',
+    tls_weak_protocol: (d) => `Weak TLS protocol in use: ${d}`,
+    chain_invalid: () => 'Certificate chain failed validation',
+    cert_expired: (d) => `Certificate expired (${String(d ?? '').replace('-', '')} days ago)`,
+    cert_expiring: (d) => `Certificate expiring in ${d} days`,
+    no_hsts: () => 'No HSTS (transport-layer downgrade risk)',
+    exposed_file: (d) => `Publicly readable sensitive file: ${d}`,
+};
+function formatOwasp(data, url) {
+    const a = data?.assessment ?? {};
+    const checks = a.checks ?? [];
+    const notObs = a.notObservable ?? [];
+    const evalCount = a.evaluatedCount ?? checks.length;
+    const lines = [
+        `=== OWASP Security Checkup: ${data?.host ?? ''} ===`,
+        `Posture Grade: ${a.grade} (${a.score}/100)`,
+        `Evaluated: ${evalCount} observable categor${evalCount === 1 ? 'y' : 'ies'} · ${notObs.length} require active/authenticated testing (out of scope)`,
+        '',
+    ];
+    for (const c of checks) {
+        lines.push(`[${String(c.status).toUpperCase()}] ${OWASP_CAT[c.id] ?? c.code}`);
+        if (c.findings?.length) {
+            for (const f of c.findings) {
+                const fn = OWASP_FINDING[f.key];
+                lines.push(`  - ${fn ? fn(f.detail) : f.key}`);
+            }
+        }
+        else {
+            lines.push('  - no issues found');
+        }
+    }
+    lines.push('');
+    lines.push(`Out of scope (not externally observable): ${notObs.map((n) => n.code).join(', ')}`);
+    lines.push('');
+    lines.push(`Full interactive report (share this link with the user): ${url}`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: {
+            grade: String(a.grade), score: Number(a.score),
+            checks: checks.map((c) => ({ code: c.code, status: c.status, findingCount: c.findings?.length ?? 0 })),
+            notObservable: notObs.map((n) => n.code),
+            reportUrl: url,
+        },
+    };
+}
+// SYNC with IMP_CAT / IMP_FINDING in the monorepo remote registry.
+const IMP_CAT = {
+    typosquat: 'Typosquat / Lookalike Domains', subdomains: 'Exposed Operational Subdomains', wildcard: 'Wildcard Certificate',
+};
+const IMP_FINDING = {
+    lookalike_registered: (d) => `Registered lookalike domain: ${d} (verify ownership)`,
+    lookalike_same_operator: (d) => `Lookalike on the domain's own nameservers/IP: ${d} (likely a defensive registration — not counted)`,
+    risky_subdomain: (d) => `Exposed subdomain: ${d}`,
+    wildcard_cert: () => 'A wildcard certificate (*.domain) has been issued',
+};
+function formatImpersonation(data, url) {
+    const a = data?.assessment ?? {};
+    const checks = a.checks ?? [];
+    const lines = [
+        `=== Brand Impersonation Exposure: ${data?.host ?? ''} ===`,
+        `Exposure Grade: ${a.grade} (${a.score}/100, higher = less exposed)`,
+        `Third-party lookalike domains: ${a.typosquatCount ?? 0} · Exposed subdomains: ${a.riskySubdomainCount ?? 0} · Wildcard cert: ${a.wildcard ? 'yes' : 'no'}`,
+        'NOTE: a registered lookalike is not proof of impersonation — it may be a legitimate third party. Verify ownership.',
+        '',
+    ];
+    for (const c of checks) {
+        lines.push(`[${String(c.status).toUpperCase()}] ${IMP_CAT[c.id] ?? c.id}`);
+        if (c.findings?.length) {
+            for (const f of c.findings) {
+                const fn = IMP_FINDING[f.key];
+                lines.push(`  - ${fn ? fn(f.detail) : f.key}`);
+            }
+        }
+        else {
+            lines.push('  - no exposure found');
+        }
+    }
+    lines.push('');
+    lines.push(`Full interactive report (share this link with the user): ${url}`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: {
+            grade: String(a.grade), score: Number(a.score),
+            typosquatCount: Number(a.typosquatCount ?? 0), riskySubdomainCount: Number(a.riskySubdomainCount ?? 0),
+            wildcard: !!a.wildcard, reportUrl: url,
+        },
+    };
+}
+function formatDomainChanges(data, url) {
+    const lines = [`=== Domain Changes: ${data?.domain ?? ''} ===`];
+    const changes = data?.changes ?? [];
+    const tools = data?.watchedTools ?? [];
+    if (!data?.watched) {
+        lines.push('');
+        lines.push('This domain is NOT under a DechoNet watch, so no change history exists yet.');
+        lines.push('Change tracking requires persistent daily snapshots — something a one-off lookup (or an agent) cannot reconstruct after the fact.');
+        lines.push('To build a timeline, ask the user to start a watch (the "Watch this domain" button on the OWASP or impersonation tool, or any watchable tool page).');
+    }
+    else {
+        lines.push(`Monitored tools: ${tools.map((t) => t.endpoint).join(', ') || '(none)'}`);
+        lines.push('');
+        if (changes.length === 0) {
+            lines.push('No changes recorded yet since monitoring began — the domain has been stable.');
+        }
+        else {
+            lines.push('Recorded changes (newest first):');
+            for (const c of changes) {
+                lines.push(`  [${c.changedAt ?? ''}] ${c.endpoint ?? ''} ${c.kind}: ${c.summary}`);
+            }
+        }
+    }
+    lines.push('');
+    lines.push(`Manage monitoring for this domain (share with the user): ${url}`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: {
+            domain: String(data?.domain ?? ''),
+            watched: !!data?.watched,
+            changeCount: changes.length,
+            changes: changes.map((c) => ({ endpoint: String(c.endpoint ?? ''), kind: String(c.kind ?? ''), summary: String(c.summary ?? ''), changedAt: String(c.changedAt ?? '') })),
+            reportUrl: url,
+        },
+    };
+}
+// SYNC with GOLIVE_* maps in the monorepo remote registry.
+const GOLIVE_CK = {
+    dns_resolves: 'DNS Resolution', dns_propagated: 'DNS Propagation',
+    tls_ready: 'SSL/TLS Readiness', https_reachable: 'HTTPS Reachability', domain_not_expiring: 'Domain Expiry',
+};
+const GOLIVE_FINDING = {
+    no_dns: () => 'No A/AAAA record — the domain does not resolve',
+    no_propagation: () => 'No value resolved from any resolver',
+    propagating: () => 'Resolvers disagree — still propagating, re-check shortly',
+    tls_unavailable: () => 'HTTPS certificate could not be observed',
+    chain_invalid: () => 'Certificate chain failed validation',
+    cert_expired: () => 'SSL certificate has expired',
+    cert_expiring: (d) => `SSL certificate expiring in ${d} days`,
+    unreachable: (d) => `Site could not be reached (status ${d ?? '—'})`,
+    http_error_status: (d) => `Site returns an error status (${d})`,
+    no_https: () => 'Final URL is not HTTPS — check the HTTPS redirect',
+    domain_expired: () => 'Domain registration has expired',
+    domain_expiring: (d) => `Domain registration expiring in ${d} days`,
+};
+const GOLIVE_VERDICT = { ready: 'READY', caution: 'CAUTION', not_ready: 'NOT READY' };
+function formatGolive(data, url) {
+    const a = data?.assessment ?? {};
+    const checks = a.checks ?? [];
+    const lines = [
+        `=== Go-Live Readiness: ${data?.host ?? ''} ===`,
+        `Verdict: ${GOLIVE_VERDICT[a.verdict] ?? String(a.verdict ?? '').toUpperCase()}`,
+        `${checks.length} checks — ${a.passCount ?? 0} pass · ${a.warnCount ?? 0} caution · ${a.failCount ?? 0} fail`,
+        '',
+    ];
+    for (const c of checks) {
+        lines.push(`[${String(c.status).toUpperCase()}] ${GOLIVE_CK[c.id] ?? c.id}`);
+        if (c.findings?.length) {
+            for (const f of c.findings) {
+                const fn = GOLIVE_FINDING[f.key];
+                lines.push(`  - ${fn ? fn(f.detail) : f.key}`);
+            }
+        }
+    }
+    lines.push('');
+    lines.push(`Full interactive report (share this link with the user): ${url}`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: {
+            verdict: String(a.verdict ?? ''),
+            passCount: Number(a.passCount ?? 0), warnCount: Number(a.warnCount ?? 0), failCount: Number(a.failCount ?? 0),
+            checks: checks.map((c) => ({ id: c.id, status: c.status })),
+            reportUrl: url,
+        },
+    };
 }
 export const tools = [
     {
@@ -567,6 +788,88 @@ export const tools = [
                         reportUrl: url,
                     },
                 };
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'owasp_check',
+        title: 'OWASP Security Checkup',
+        outputSchema: owaspOutputShape,
+        annotations: annotate('OWASP Security Checkup'),
+        description: "Assess a domain's OWASP posture from EXTERNAL OBSERVATION only: the OWASP Secure Headers Project plus the externally observable Top 10 subset — A02 Cryptographic Failures (TLS/cert), A05 Security Misconfiguration (header/info leaks), and A06 Vulnerable & Outdated Components (version disclosure) — returning an A+ to F grade. " +
+            'IMPORTANT SCOPE: this does NOT check A01 (Access Control), A03 (Injection), A04, A07 (Authentication), A08, A09, or A10 (SSRF) — those require authenticated access or active/injection testing and are explicitly reported as out-of-scope, never as "pass". Do not present this as a full OWASP Top 10 assessment. ' +
+            'Unlike security_scan this is fully PASSIVE (a normal HTTP GET plus a public CT-log lookup, no port scan), so it is safe and lawful to run on domains you do not own. Use http_security or ssl_check for depth on one layer. ' +
+            'Read-only; requires no API key; rate-limited. Returns a text report: grade, per-category findings, the out-of-scope list, and a shareable report link.',
+        schema: {
+            host: z.string().describe("Hostname to assess, without scheme (e.g., 'example.com'). The host portion of a pasted URL is also accepted."),
+        },
+        handler: async ({ host }) => {
+            try {
+                return formatOwasp(await callApi(`/api/util/owasp?host=${enc(host)}`), reportUrl('owasp', 'host', host));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'impersonation_exposure',
+        title: 'Brand Impersonation Exposure',
+        outputSchema: impOutputShape,
+        annotations: annotate('Brand Impersonation Exposure'),
+        description: "Assess how exposed a domain is to brand impersonation and phishing, PASSIVELY: live typosquat/lookalike domains (homoglyph, omission, transposition, TLD swap) that actually resolve, operational subdomains (dev/staging/admin) exposed in CT logs, and whether a wildcard certificate exists — returning an A+ (low exposure) to F (high exposure) grade. " +
+            'NEUTRAL FRAMING (important): a registered lookalike domain is NOT proof of impersonation — it may be a legitimate third party or the owner\'s own. Report it as exposure to verify, never as an accusation against a specific domain. ' +
+            'Fully passive: public DNS delegation checks plus public CT-log queries, sending nothing to the target or the lookalike domains, so it is safe and lawful to run. Use lookalike_domains or subdomain_discovery for the raw per-tool detail. ' +
+            'Read-only; requires no API key; rate-limited. Returns a text report: grade, counts, per-category findings, and a shareable report link.',
+        schema: {
+            domain: z.string().describe("Registrable domain to assess for impersonation exposure (e.g., 'example.com'). Scheme and path are stripped."),
+        },
+        handler: async ({ domain }) => {
+            try {
+                return formatImpersonation(await callApi(`/api/util/impersonation?query=${enc(domain)}`), reportUrl('impersonation', 'query', domain));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'domain_changes',
+        title: 'Domain Change History',
+        outputSchema: domainChangesOutputShape,
+        annotations: annotate('Domain Change History'),
+        description: 'Report what has CHANGED for a domain over time — the security regressions and drift that DechoNet\'s daily monitoring has recorded across every watch on the domain (SSL grade, headers, DNS, OWASP posture, impersonation exposure, etc.). ' +
+            'Use this to answer "what changed on my domain since yesterday/last week?" — a question that requires persistent day-over-day snapshots and therefore cannot be reconstructed from a single live lookup. If the domain is not being watched, the result says so and how to start; the point-in-time tools (security_scan, owasp_check, ssl_check) give the current state instead. ' +
+            'Read-only; requires no API key; rate-limited. Returns the monitored tools, a newest-first change timeline, and a link to manage monitoring.',
+        schema: {
+            domain: z.string().describe("Domain whose recorded change history to fetch (e.g., 'example.com'). Scheme and path are stripped."),
+        },
+        handler: async ({ domain }) => {
+            try {
+                return formatDomainChanges(await callApi(`/api/util/changes?query=${enc(domain)}`), 'https://dechonet.com/pro?src=mcp-report');
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'golive_check',
+        title: 'Go-Live Readiness Checklist',
+        outputSchema: goliveOutputShape,
+        annotations: annotate('Go-Live Readiness Checklist'),
+        description: 'Check whether a domain is ready to launch or migrate — a go/no-go verdict over five essentials: DNS resolves to an IP, has propagated consistently across global resolvers, SSL/TLS is ready, the site is reachable over HTTPS, and the domain registration is not about to expire. ' +
+            'Use this right before flipping DNS to a new server, or to confirm a migration has landed. It answers "can I switch over yet?"; use security_scan for a security posture grade or the individual tools for depth. Any failing essential yields not_ready; only cautions yields caution; all clear yields ready. ' +
+            'Read-only (a passive multi-probe, though it does resolve and fetch the domain); requires no API key; rate-limited. Returns the verdict, per-check statuses, and a shareable report link.',
+        schema: {
+            domain: z.string().describe("Domain to check for launch/migration readiness (e.g., 'example.com'). Scheme and path are stripped."),
+        },
+        handler: async ({ domain }) => {
+            try {
+                return formatGolive(await callApi(`/api/util/golive?query=${enc(domain)}`), reportUrl('golive', 'query', domain));
             }
             catch (e) {
                 return errorResult(e.message);
