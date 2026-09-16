@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.dechonet/mcp",
+  "description": "Hosted DechoNet MCP: 20 domain recon tools for AI agents. DNS, SSL, headers, subdomains, changes.",
+  "repository": {
+    "url": "https://github.com/node-man/dechonet-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://dechonet.com/mcp",
+  "version": "1.2.1",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://dechonet.com/mcp"
+    }
+  ]
+}
