@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.node-man/dechonet-mcp",
+  "description": "20 security recon tools for AI agents — DNS, SSL, HTTP, email, ports, ASN, subdomains, lookalikes, OWASP, impersonation exposure, domain watch + change history. Every result interpreted (severity, cause, action). Free, no API key. Hosted remote: https://dechonet.com/mcp",
+  "repository": {
+    "url": "https://github.com/node-man/dechonet-mcp",
+    "source": "github"
+  },
+  "version": "1.2.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "dechonet-mcp",
+      "version": "1.2.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "API base URL (default: https://dechonet.com)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "DECHONET_URL"
+        },
+        {
+          "description": "Response language: en or ko (default: en)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "DECHONET_LOCALE"
+        }
+      ]
+    }
+  ],
+  "websiteUrl": "https://dechonet.com/mcp",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://dechonet.com/mcp"
+    }
+  ]
+}

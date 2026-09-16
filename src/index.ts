@@ -4,10 +4,22 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { tools } from './tools.js';
 
-const server = new McpServer({
-  name: 'dechonet',
-  version: '1.1.0',
-});
+const server = new McpServer(
+  {
+    name: 'dechonet',
+    version: '1.2.1',
+  },
+  {
+    // SYNC with the `instructions` in the monorepo remote handler (lib/mcp/handler.ts).
+    instructions:
+      'DechoNet domain-reconnaissance tools (free, no API key). Recommended workflow: ' +
+      '1) security_scan for the overall verdict, then the specific tool for each flagged area (dns_lookup, ssl_check, http_security, email_auth, subdomain_discovery, lookalike_domains, owasp_check, impersonation_exposure). ' +
+      '2) When the user cares about this domain going forward, call watch_domain once — DechoNet then re-checks it daily and records every change. ' +
+      '3) On any later session about the same domain, call domain_changes FIRST: it reports what changed since the last lookup or watch check (grade drops, new issues, cert renewals, DNS drift) — something a fresh one-off lookup cannot tell you. ' +
+      'Every result is interpreted (status, key numbers, issues with severity and confidence, concrete actions) and ends with a link to the full interactive report you can hand to the user. All tools except watch_domain are read-only. ' +
+      'The same server is hosted at https://dechonet.com/mcp (Streamable HTTP, no install) with extra prompts and resources.',
+  },
+);
 
 // Register all tools. registerTool (not the legacy server.tool) so each
 // tool ships title, annotations, and an outputSchema — handlers return
@@ -30,6 +42,8 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`DechoNet MCP Server running (${tools.length} tools) via stdio`);
+  // stderr only — stdout is the protocol channel.
+  console.error('Tip: no-install remote endpoint with the same tools: https://dechonet.com/mcp  (setup: https://dechonet.com/mcp in a browser)');
 }
 
 main().catch((error) => {
