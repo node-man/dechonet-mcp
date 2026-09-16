@@ -11,6 +11,17 @@ async function callApi(path) {
     }
     return json.data;
 }
+async function postApi(path, payload) {
+    const res = await fetch(`${BASE_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE },
+        body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!json.ok)
+        throw new Error(json.error?.message || `API error: ${res.status}`);
+    return json.data;
+}
 // Human-facing report URL appended to every tool response. The MCP→person
 // bridge: agents relay this link to their user, and the tool page auto-runs
 // the same lookup from the 24h cache, so the click lands on the same result
@@ -86,8 +97,21 @@ const domainChangesOutputShape = {
     watched: z.boolean().describe('Whether the domain is under an active daily watch'),
     changeCount: z.number().optional().describe('Number of changes recorded'),
     changes: z.array(z.object({ endpoint: z.string().optional(), kind: z.string(), summary: z.string(), changedAt: z.string().optional() })).optional().describe('Recorded changes, newest first'),
+    historyChangeCount: z.number().optional().describe('Changes found between the last two stored lookups per tool (no watch needed)'),
+    historyChanges: z.array(z.object({ endpoint: z.string().optional(), kind: z.string(), summary: z.string(), since: z.string().optional(), changedAt: z.string().optional() })).optional().describe('Lookup-to-lookup changes, newest first'),
     reportUrl: z.string().describe('Where a human can start or manage monitoring'),
 };
+// SYNC with WATCH_DOMAIN_OUTPUT_SCHEMA in the monorepo remote registry.
+const watchDomainOutputShape = {
+    domain: z.string(),
+    watches: z.array(z.object({ tool: z.string(), endpoint: z.string().optional(), url: z.string().describe('Public change-history page for this watch') })).describe('One entry per tool now under a daily watch'),
+    failed: z.array(z.string()).optional().describe('Tools that could not be watched (rate limit or error)'),
+    reportUrl: z.string(),
+};
+const WATCHABLE_TOOLS = {
+    ssl: 'util/ssl', dns: 'util/dns', http: 'util/http', rdap: 'util/rdap', owasp: 'util/owasp', impersonation: 'util/impersonation',
+};
+const DEFAULT_WATCH_TOOLS = ['ssl', 'dns', 'http', 'rdap'];
 // SYNC with GOLIVE_OUTPUT_SCHEMA in the monorepo remote registry.
 const goliveOutputShape = {
     verdict: z.string().describe("'ready' | 'caution' | 'not_ready'"),
@@ -280,27 +304,49 @@ function formatImpersonation(data, url) {
         },
     };
 }
+// SYNC with formatDomainChanges in the monorepo remote registry.
 function formatDomainChanges(data, url) {
     const lines = [`=== Domain Changes: ${data?.domain ?? ''} ===`];
     const changes = data?.changes ?? [];
     const tools = data?.watchedTools ?? [];
+    const hLookups = data?.history?.lookups ?? [];
+    const hChanges = data?.history?.changes ?? [];
     if (!data?.watched) {
         lines.push('');
-        lines.push('This domain is NOT under a DechoNet watch, so no change history exists yet.');
-        lines.push('Change tracking requires persistent daily snapshots — something a one-off lookup (or an agent) cannot reconstruct after the fact.');
-        lines.push('To build a timeline, ask the user to start a watch (the "Watch this domain" button on the OWASP or impersonation tool, or any watchable tool page).');
+        lines.push('This domain is NOT under a DechoNet daily watch.');
+        lines.push('Call watch_domain to start one — from then on every daily check that finds a change is recorded here.');
     }
     else {
         lines.push(`Monitored tools: ${tools.map((t) => t.endpoint).join(', ') || '(none)'}`);
         lines.push('');
         if (changes.length === 0) {
-            lines.push('No changes recorded yet since monitoring began — the domain has been stable.');
+            lines.push('No changes recorded by the daily watch yet — the domain has been stable.');
         }
         else {
-            lines.push('Recorded changes (newest first):');
-            for (const c of changes) {
+            lines.push('Recorded changes from daily monitoring (newest first):');
+            for (const c of changes)
                 lines.push(`  [${c.changedAt ?? ''}] ${c.endpoint ?? ''} ${c.kind}: ${c.summary}`);
-            }
+        }
+    }
+    // Lookup-to-lookup diff: stored snapshots from previous lookups by anyone
+    // (agent or human) — available even without a watch.
+    lines.push('');
+    if (hLookups.length === 0) {
+        lines.push('No previous DechoNet lookups are stored for this domain, so there is nothing to compare against yet. Run security_scan (or the specific tools) now; the next call to domain_changes will report what moved since today.');
+    }
+    else {
+        const paired = hLookups.filter((l) => l.previousSeenAt);
+        lines.push(`Stored lookups: ${hLookups.map((l) => `${l.endpoint} (last ${String(l.lastSeenAt ?? '').slice(0, 10)})`).join(', ')}`);
+        if (paired.length === 0) {
+            lines.push('Each tool has been looked up only once so far — no earlier snapshot to compare against. Re-run the relevant tool later and this will report the difference.');
+        }
+        else if (hChanges.length === 0) {
+            lines.push(`Compared the last two lookups for ${paired.length} tool(s): nothing meaningful changed (volatile values like latency and countdowns are ignored).`);
+        }
+        else {
+            lines.push('Changes between the last two lookups (newest first):');
+            for (const c of hChanges)
+                lines.push(`  ${c.endpoint ?? ''} ${c.kind}: ${c.summary}  (${String(c.since ?? '').slice(0, 10)} → ${String(c.changedAt ?? '').slice(0, 10)})`);
         }
     }
     lines.push('');
@@ -312,8 +358,40 @@ function formatDomainChanges(data, url) {
             watched: !!data?.watched,
             changeCount: changes.length,
             changes: changes.map((c) => ({ endpoint: String(c.endpoint ?? ''), kind: String(c.kind ?? ''), summary: String(c.summary ?? ''), changedAt: String(c.changedAt ?? '') })),
+            historyChangeCount: hChanges.length,
+            historyChanges: hChanges.map((c) => ({ endpoint: String(c.endpoint ?? ''), kind: String(c.kind ?? ''), summary: String(c.summary ?? ''), since: String(c.since ?? ''), changedAt: String(c.changedAt ?? '') })),
             reportUrl: url,
         },
+    };
+}
+// SYNC with formatWatchDomain in the monorepo remote registry.
+function formatWatchDomain(domain, results, origin) {
+    const okOnes = results.filter((r) => r.url);
+    const failed = results.filter((r) => !r.url);
+    const lines = [`=== Watch started: ${domain} ===`];
+    if (okOnes.length) {
+        lines.push(`DechoNet now re-checks this domain every day for: ${okOnes.map((r) => r.tool).join(', ')}.`);
+        lines.push('Each check compares against the previous snapshot; grade drops, new issues, certificate renewals and DNS drift are recorded as changes.');
+        lines.push('');
+        for (const r of okOnes)
+            lines.push(`  ${r.tool}: ${origin}${r.url}`);
+    }
+    if (failed.length) {
+        lines.push('');
+        lines.push(`Could not start: ${failed.map((r) => `${r.tool} (${r.error ?? 'error'})`).join(', ')}`);
+    }
+    lines.push('');
+    lines.push('Next time this domain comes up, call domain_changes first — it will report what changed since today.');
+    lines.push(`Monitoring overview for the user: ${origin}/pro?src=mcp-report`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: {
+            domain,
+            watches: okOnes.map((r) => ({ tool: r.tool, endpoint: r.endpoint, url: `${origin}${r.url}` })),
+            failed: failed.map((r) => r.tool),
+            reportUrl: `${origin}/pro?src=mcp-report`,
+        },
+        ...(okOnes.length === 0 ? { isError: true } : {}),
     };
 }
 // SYNC with GOLIVE_* maps in the monorepo remote registry.
@@ -842,8 +920,9 @@ export const tools = [
         outputSchema: domainChangesOutputShape,
         annotations: annotate('Domain Change History'),
         description: 'Report what has CHANGED for a domain over time — the security regressions and drift that DechoNet\'s daily monitoring has recorded across every watch on the domain (SSL grade, headers, DNS, OWASP posture, impersonation exposure, etc.). ' +
-            'Use this to answer "what changed on my domain since yesterday/last week?" — a question that requires persistent day-over-day snapshots and therefore cannot be reconstructed from a single live lookup. If the domain is not being watched, the result says so and how to start; the point-in-time tools (security_scan, owasp_check, ssl_check) give the current state instead. ' +
-            'Read-only; requires no API key; rate-limited. Returns the monitored tools, a newest-first change timeline, and a link to manage monitoring.',
+            'Use this to answer "what changed on my domain since yesterday/last week?" — a question that requires persistent snapshots and therefore cannot be reconstructed from a single live lookup. Call it FIRST whenever a domain you have looked at before comes up again. ' +
+            'Two sources: (a) the daily watch timeline if the domain is watched (start one with watch_domain), and (b) even without a watch, the difference between the last two stored lookups of each tool — so a second lookup already yields a comparison. The point-in-time tools (security_scan, owasp_check, ssl_check) give the current state instead. ' +
+            'Read-only; requires no API key; rate-limited. Returns the monitored tools, a newest-first change timeline, lookup-to-lookup changes, and a link to manage monitoring.',
         schema: {
             domain: z.string().describe("Domain whose recorded change history to fetch (e.g., 'example.com'). Scheme and path are stripped."),
         },
@@ -854,6 +933,37 @@ export const tools = [
             catch (e) {
                 return errorResult(e.message);
             }
+        },
+    },
+    {
+        name: 'watch_domain',
+        title: 'Watch a Domain (daily re-check)',
+        outputSchema: watchDomainOutputShape,
+        annotations: { title: 'Watch a Domain (daily re-check)', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        description: 'Start (or reuse) a daily DechoNet watch on a domain so that changes are recorded over time — SSL grade/issuer/expiry, DNS records, HTTP security headers, domain registration, and optionally OWASP posture and impersonation exposure. ' +
+            'Use this once when the user cares about a domain beyond a one-off check (their own domain, a client, a vendor, a target under investigation). After this, domain_changes answers "what changed since last time?" from real daily snapshots. ' +
+            'Not read-only (it creates a watch record) but idempotent: watching an already-watched domain returns the existing watch. No account, no email, no PII — a watch is keyed by domain+tool and its history page is a public unguessable URL you can share with the user. Rate-limited (a few watches per minute).',
+        schema: {
+            domain: z.string().describe("Registered domain to watch (e.g., 'example.com'). Scheme and path are stripped."),
+            tools: z.array(z.enum(['ssl', 'dns', 'http', 'rdap', 'owasp', 'impersonation'])).optional().describe("Which checks to re-run daily. Default ['ssl','dns','http','rdap'] (certificate, DNS, security headers, registration). Add 'owasp' and/or 'impersonation' for posture and brand-exposure tracking."),
+        },
+        handler: async ({ domain, tools }) => {
+            const clean = String(domain ?? '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').split('/')[0];
+            const chosen = (Array.isArray(tools) && tools.length ? tools : DEFAULT_WATCH_TOOLS).map(String).filter((t) => WATCHABLE_TOOLS[t]);
+            if (!clean || chosen.length === 0)
+                return errorResult('Provide a domain and at least one known tool.');
+            const results = [];
+            for (const tool of chosen) {
+                const endpoint = WATCHABLE_TOOLS[tool];
+                try {
+                    const data = await postApi('/api/watch', { endpoint, target: clean });
+                    results.push({ tool, endpoint, url: data?.url });
+                }
+                catch (e) {
+                    results.push({ tool, endpoint, error: e.message });
+                }
+            }
+            return formatWatchDomain(clean, results, 'https://dechonet.com');
         },
     },
     {
