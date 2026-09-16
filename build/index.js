@@ -4,7 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { tools } from './tools.js';
 const server = new McpServer({
     name: 'dechonet',
-    version: '1.2.1',
+    version: '1.2.2',
 }, {
     // SYNC with the `instructions` in the monorepo remote handler (lib/mcp/handler.ts).
     instructions: 'DechoNet domain-reconnaissance tools (free, no API key). Recommended workflow: ' +
