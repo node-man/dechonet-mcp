@@ -2,7 +2,7 @@
 
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-**19 tools, free, no API key.** DNS, SSL/TLS, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, and **domain change history** — what changed since the last check.
+**20 tools, free, no API key.** DNS, SSL/TLS, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — and a daily **watch** you can set from the agent.
 
 Every result comes back interpreted, not just as raw JSON: a status, the key numbers, each issue with severity and confidence, and the concrete action to take. That is what an agent needs to tell a human what to do next.
 
@@ -68,7 +68,8 @@ npm install -g dechonet-mcp
 | `owasp_check` | OWASP-mapped checks that can be observed passively (headers, TLS, exposed files), honest about what is out of scope |
 | `impersonation_exposure` | Brand impersonation exposure grade: third-party lookalikes + exposed operational subdomains + wildcard certs |
 | `golive_check` | Go-live readiness — DNS, propagation, SSL, HTTP, registration in one READY / CAUTION / NOT READY verdict |
-| `domain_changes` | What changed since the last check — status, grade, issuer, DNS, issues. Time series from DechoNet monitoring |
+| `domain_changes` | What changed since the last check — status, grade, issuer, DNS, issues. Works from lookup history even without a watch |
+| `watch_domain` | Register a domain for daily re-checks (SSL, DNS, HTTP, RDAP) so `domain_changes` accumulates a timeline. The only tool that writes; idempotent |
 | `ip_info` | Public IP, ISP, ASN, proxy detection |
 | `email_header_analysis` | Email delivery route tracing + auth results |
 | `subnet_calc` | CIDR subnet calculator (offline) |

@@ -878,7 +878,7 @@ export const tools = [
         outputSchema: owaspOutputShape,
         annotations: annotate('OWASP Security Checkup'),
         description: "Assess a domain's OWASP posture from EXTERNAL OBSERVATION only: the OWASP Secure Headers Project plus the externally observable Top 10 subset — A02 Cryptographic Failures (TLS/cert), A05 Security Misconfiguration (header/info leaks), and A06 Vulnerable & Outdated Components (version disclosure) — returning an A+ to F grade. " +
-            'IMPORTANT SCOPE: this does NOT check A01 (Access Control), A03 (Injection), A04, A07 (Authentication), A08, A09, or A10 (SSRF) — those require authenticated access or active/injection testing and are explicitly reported as out-of-scope, never as "pass". Do not present this as a full OWASP Top 10 assessment. ' +
+            'Scope: A01 (Access Control), A03 (Injection), A04, A07 (Authentication), A08, A09 and A10 (SSRF) are not checked — they need authenticated access or active/injection testing, so the result lists them as out-of-scope rather than "pass". Present the result as an external-posture check, not a full OWASP Top 10 assessment. ' +
             'Unlike security_scan this is fully PASSIVE (a normal HTTP GET plus a public CT-log lookup, no port scan), so it is safe and lawful to run on domains you do not own. Use http_security or ssl_check for depth on one layer. ' +
             'Read-only; requires no API key; rate-limited. Returns a text report: grade, per-category findings, the out-of-scope list, and a shareable report link.',
         schema: {
@@ -899,7 +899,7 @@ export const tools = [
         outputSchema: impOutputShape,
         annotations: annotate('Brand Impersonation Exposure'),
         description: "Assess how exposed a domain is to brand impersonation and phishing, PASSIVELY: live typosquat/lookalike domains (homoglyph, omission, transposition, TLD swap) that actually resolve, operational subdomains (dev/staging/admin) exposed in CT logs, and whether a wildcard certificate exists — returning an A+ (low exposure) to F (high exposure) grade. " +
-            'NEUTRAL FRAMING (important): a registered lookalike domain is NOT proof of impersonation — it may be a legitimate third party or the owner\'s own. Report it as exposure to verify, never as an accusation against a specific domain. ' +
+            'Framing: a registered lookalike domain is not proof of impersonation — it may be a legitimate third party or the owner\'s own — so report it as exposure to verify, not as an accusation against that domain. ' +
             'Fully passive: public DNS delegation checks plus public CT-log queries, sending nothing to the target or the lookalike domains, so it is safe and lawful to run. Use lookalike_domains or subdomain_discovery for the raw per-tool detail. ' +
             'Read-only; requires no API key; rate-limited. Returns a text report: grade, counts, per-category findings, and a shareable report link.',
         schema: {
@@ -919,8 +919,8 @@ export const tools = [
         title: 'Domain Change History',
         outputSchema: domainChangesOutputShape,
         annotations: annotate('Domain Change History'),
-        description: 'Report what has CHANGED for a domain over time — the security regressions and drift that DechoNet\'s daily monitoring has recorded across every watch on the domain (SSL grade, headers, DNS, OWASP posture, impersonation exposure, etc.). ' +
-            'Use this to answer "what changed on my domain since yesterday/last week?" — a question that requires persistent snapshots and therefore cannot be reconstructed from a single live lookup. Call it FIRST whenever a domain you have looked at before comes up again. ' +
+        description: 'Report what has changed for a domain over time — the security regressions and drift that DechoNet\'s daily monitoring has recorded across every watch on the domain (SSL grade, headers, DNS, OWASP posture, impersonation exposure, etc.). ' +
+            'Use this to answer "what changed on my domain since yesterday/last week?" — a question that requires persistent snapshots and therefore cannot be reconstructed from a single live lookup. When a domain you have looked at before comes up again, start with this tool. ' +
             'Two sources: (a) the daily watch timeline if the domain is watched (start one with watch_domain), and (b) even without a watch, the difference between the last two stored lookups of each tool — so a second lookup already yields a comparison. The point-in-time tools (security_scan, owasp_check, ssl_check) give the current state instead. ' +
             'Read-only; requires no API key; rate-limited. Returns the monitored tools, a newest-first change timeline, lookup-to-lookup changes, and a link to manage monitoring.',
         schema: {
