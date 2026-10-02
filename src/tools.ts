@@ -137,7 +137,7 @@ const watchDomainOutputShape = {
   reportUrl: z.string(),
 };
 const WATCHABLE_TOOLS: Record<string, string> = {
-  ssl: 'util/ssl', dns: 'util/dns', http: 'util/http', rdap: 'util/rdap', owasp: 'util/owasp', impersonation: 'util/impersonation',
+  ssl: 'util/ssl', dns: 'util/dns', http: 'util/http', rdap: 'util/rdap', owasp: 'util/owasp', impersonation: 'util/impersonation', pqc: 'util/pqc',
 };
 const DEFAULT_WATCH_TOOLS = ['ssl', 'dns', 'http', 'rdap'];
 
@@ -150,6 +150,72 @@ const goliveOutputShape = {
   checks: z.array(z.object({ id: z.string(), status: z.string() })).optional(),
   reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
 };
+
+// SYNC with PQC_OUTPUT_SCHEMA in the monorepo remote registry.
+const pqcOutputShape = {
+  verdict: z.string().describe("'ready' | 'partial' | 'not_ready' | 'unknown'"),
+  score: z.number().nullable().optional().describe('0-100 post-quantum readiness; null when inconclusive'),
+  grade: z.string().nullable().optional(),
+  keyExchange: z.string().nullable().optional().describe('Hybrid group accepted (e.g. X25519MLKEM768), null if none'),
+  terminatedBy: z.string().nullable().optional().describe("'origin' or the CDN name whose edge answered"),
+  tlsVersion: z.string().nullable().optional(),
+  checks: z.array(z.object({ id: z.string(), status: z.string() })).optional(),
+  reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
+};
+
+// SYNC with the PQC maps in the monorepo remote registry.
+const PQC_CK: Record<string, string> = {
+  hybrid_kex: 'Hybrid post-quantum key exchange', kex_origin: 'Who provides it', tls13: 'TLS 1.3',
+  cert_crypto: 'Certificate signatures', kr_algorithms: 'Korean PQC algorithms (KpqC)',
+};
+const PQC_FINDING: Record<string, (d?: string) => string> = {
+  hybrid_supported: (d) => `Accepted a handshake offering only ${d ?? 'X25519MLKEM768'}`,
+  hybrid_missing: () => 'Refused a handshake offering only hybrid post-quantum groups (classical key exchange only)',
+  cdn_can_enable: (d) => `TLS is terminated by ${d}; post-quantum key exchange can usually be enabled in the CDN settings`,
+  hybrid_inconclusive: () => 'No clear accept or refuse (timeout or reset) — inconclusive, not a "no"',
+  via_cdn: (d) => `Provided by the ${d} edge, not by the organisation's own server`,
+  origin_direct: () => 'Provided by the server answering for this domain (no known CDN in front)',
+  tls_old: (d) => `Negotiated ${d}; hybrid post-quantum key exchange requires TLS 1.3`,
+  weak_classical: (d) => `Weak classical cryptography in the chain: ${d}`,
+  pq_signature: (d) => `Post-quantum signature in the leaf certificate: ${d}`,
+  classical_signature: (d) => `Leaf certificate: ${d} (tracked, not scored)`,
+  kr_unobservable: () => 'NTRU+, SMAUG-T, HAETAE and AIMer have no standard TLS codepoints yet — not observable from outside',
+  probe_unavailable: () => 'The post-quantum probe is unavailable right now',
+  unreachable: () => 'Could not complete a TLS handshake on port 443',
+};
+const PQC_VERDICT: Record<string, string> = { ready: 'READY', partial: 'PARTIAL (CDN)', not_ready: 'NOT READY', unknown: 'UNKNOWN (inconclusive)' };
+
+function formatPqc(data: any, url: string) {
+  const a = data?.assessment ?? {};
+  const r = data?.raw ?? {};
+  const checks: any[] = a.checks ?? [];
+  const lines: string[] = [
+    `=== Post-Quantum TLS Readiness: ${data?.host ?? ''} ===`,
+    `Verdict: ${PQC_VERDICT[a.verdict] ?? String(a.verdict ?? '').toUpperCase()}`,
+    ...(a.score === null || a.score === undefined ? [] : [`Score: ${a.score}/100 (${a.grade})`]),
+    '',
+  ];
+  for (const c of checks) {
+    lines.push(`[${String(c.status).toUpperCase()}] ${PQC_CK[c.id] ?? c.id}`);
+    for (const f of c.findings ?? []) { const fn = PQC_FINDING[f.key]; lines.push(`  - ${fn ? fn(f.detail) : f.key}`); }
+  }
+  lines.push('');
+  lines.push('Scope: public TLS endpoint on port 443 only — an external indicator, not a full PQC audit.');
+  lines.push(`Full interactive report (share this link with the user): ${url}`);
+  return {
+    content: [{ type: 'text' as const, text: lines.join('\n') }],
+    structuredContent: {
+      verdict: String(a.verdict ?? ''),
+      score: typeof a.score === 'number' ? a.score : null,
+      grade: a.grade ?? null,
+      keyExchange: r.hybridKex === true ? String(r.group ?? 'X25519MLKEM768') : null,
+      terminatedBy: r.connected ? String(r.cdn ?? 'origin') : null,
+      tlsVersion: r.tlsVersion ?? null,
+      checks: checks.map((c) => ({ id: c.id, status: c.status })),
+      reportUrl: url,
+    },
+  };
+}
 
 function structuredFromInterp(data: any, url: string): Record<string, any> {
   const interp = data?.interpretation;
@@ -936,7 +1002,7 @@ export const tools: ToolDef[] = [
       'Not read-only (it creates a watch record) but idempotent: watching an already-watched domain returns the existing watch. No account, no email, no PII — a watch is keyed by domain+tool and its history page is a public unguessable URL you can share with the user. Rate-limited (a few watches per minute).',
     schema: {
       domain: z.string().describe("Registered domain to watch (e.g., 'example.com'). Scheme and path are stripped."),
-      tools: z.array(z.enum(['ssl', 'dns', 'http', 'rdap', 'owasp', 'impersonation'])).optional().describe("Which checks to re-run daily. Default ['ssl','dns','http','rdap'] (certificate, DNS, security headers, registration). Add 'owasp' and/or 'impersonation' for posture and brand-exposure tracking."),
+      tools: z.array(z.enum(['ssl', 'dns', 'http', 'rdap', 'owasp', 'impersonation', 'pqc'])).optional().describe("Which checks to re-run daily. Default ['ssl','dns','http','rdap'] (certificate, DNS, security headers, registration). Add 'owasp' and/or 'impersonation' for posture and brand-exposure tracking, 'pqc' to record the day post-quantum key exchange is turned on."),
     },
     handler: async ({ domain, tools }) => {
       const clean = String(domain ?? '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').split('/')[0];
@@ -967,6 +1033,23 @@ export const tools: ToolDef[] = [
     },
     handler: async ({ domain }) => {
       try { return formatGolive(await callApi(`/api/util/golive?query=${enc(domain)}`), reportUrl('golive', 'query', domain)); }
+      catch (e: any) { return errorResult(e.message); }
+    },
+  },
+  {
+    name: 'pqc_readiness',
+    title: 'Post-Quantum TLS Readiness',
+    outputSchema: pqcOutputShape,
+    annotations: annotate('Post-Quantum TLS Readiness'),
+    description:
+      'Check whether a website\'s public TLS endpoint is ready for post-quantum cryptography: does it complete a TLS 1.3 handshake that offers only the hybrid X25519MLKEM768 key exchange (ML-KEM), and does the organisation\'s own server provide it or a CDN edge in front of it. Also reports what the certificate chain is signed with (tracked, not scored: public CAs do not issue post-quantum certificates yet). ' +
+      'Verdicts: ready (the origin server supports it), partial (a CDN edge provides it; the CDN-to-origin leg is invisible), not_ready (the hybrid-only handshake was refused), unknown (inconclusive; do not report it as "no"). ' +
+      'Scope: only the public endpoint on port 443. Internal systems, VPNs, code, and Korean PQC algorithms (no standard TLS codepoints yet) are not observable, so present the result as an external indicator of migration progress, not a full PQC audit. Read-only; requires no API key; rate-limited. Returns the verdict, a 0-100 readiness score and grade, per-check statuses, and a shareable report link.',
+    schema: {
+      domain: z.string().describe("Domain whose HTTPS endpoint to check (e.g., 'example.com'). Scheme and path are stripped."),
+    },
+    handler: async ({ domain }) => {
+      try { return formatPqc(await callApi(`/api/util/pqc?host=${enc(domain)}`), reportUrl('pqc', 'host', domain)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },

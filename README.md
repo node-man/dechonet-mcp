@@ -2,7 +2,7 @@
 
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-**20 tools, free, no API key.** DNS, SSL/TLS, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — and a daily **watch** you can set from the agent.
+**21 tools, free, no API key.** DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — and a daily **watch** you can set from the agent.
 
 Every result comes back interpreted, not just as raw JSON: a status, the key numbers, each issue with severity and confidence, and the concrete action to take. That is what an agent needs to tell a human what to do next.
 
@@ -69,6 +69,7 @@ npm install -g dechonet-mcp
 | `impersonation_exposure` | Brand impersonation exposure grade: third-party lookalikes + exposed operational subdomains + wildcard certs |
 | `golive_check` | Go-live readiness — DNS, propagation, SSL, HTTP, registration in one READY / CAUTION / NOT READY verdict |
 | `domain_changes` | What changed since the last check — status, grade, issuer, DNS, issues. Works from lookup history even without a watch |
+| `pqc_readiness` | Post-quantum TLS readiness: hybrid X25519MLKEM768 key exchange, whether the origin server or a CDN edge provides it, certificate signature algorithms. External indicator, not a full PQC audit |
 | `watch_domain` | Register a domain for daily re-checks (SSL, DNS, HTTP, RDAP) so `domain_changes` accumulates a timeline. The only tool that writes; idempotent |
 | `ip_info` | Public IP, ISP, ASN, proxy detection |
 | `email_header_analysis` | Email delivery route tracing + auth results |
