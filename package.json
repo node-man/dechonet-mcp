@@ -1,6 +1,6 @@
 {
   "name": "dechonet-mcp",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Domain security reconnaissance MCP server — 23 tools for AI agents. Phishing/smishing link checks, external exposure maps, DNS, SSL, post-quantum TLS readiness, HTTP headers, email auth, port scan, ASN, RDAP, subdomains, lookalikes, OWASP, impersonation exposure, domain change history. Every result interpreted. Free, no API key.",
   "mcpName": "com.dechonet/mcp",
   "type": "module",

@@ -2,7 +2,7 @@
 
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-**23 tools, free, no API key.** Phishing/smishing link checks, external exposure maps (admin screens, staging, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — and a daily **watch** you can set from the agent.
+**23 tools, free, no API key.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — and a daily **watch** you can set from the agent.
 
 Every result comes back interpreted, not just as raw JSON: a status, the key numbers, each issue with severity and confidence, and the concrete action to take. That is what an agent needs to tell a human what to do next.
 
@@ -54,7 +54,7 @@ npm install -g dechonet-mcp
 | Tool | Description |
 |------|-------------|
 | `phishing_link_check` | **Is this link a scam?** — paste a text message or URL; follows shorteners, checks domain age, Korean brand impersonation, APK downloads, phishing feeds |
-| `exposure_map` | **What do we expose?** — subdomains from CT, each opened once: admin screens, staging, dev tools, VPN logins, default pages, directory listings (counts; per-host detail for the verified owner on the web report) |
+| `exposure_map` | **Admin pages open to the internet?** — subdomains from CT, each opened once: admin screens, staging, dev tools, VPN logins, default pages, directory listings (counts; per-host detail for the verified owner on the web report) |
 | `security_scan` | **Comprehensive scan** — 9 checks in parallel, 0-100 Health Score, A-F grade |
 | `dns_lookup` | DNS records + DNSSEC + SPF/DMARC validation |
 | `ssl_check` | SSL/TLS certificate, chain, expiry, HSTS, CT history, A-F grade |

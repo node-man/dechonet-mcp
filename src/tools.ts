@@ -581,7 +581,7 @@ function formatExposure(data: any, url: string) {
   const raw = data?.raw ?? {};
   const it = data?.interpretation ?? {};
   const counts: Record<string, number> = raw.counts ?? {};
-  const lines: string[] = [`=== External Exposure Map: ${raw.domain ?? ''} ===`, `Status: ${String(it.status ?? 'info').toUpperCase()} — checked ${raw.probed ?? 0} of ${raw.found ?? 0} known hosts${raw.truncated ? ' (risky-looking names first, capped at 40)' : ''}`, ''];
+  const lines: string[] = [`=== Exposed Admin Pages: ${raw.domain ?? ''} ===`, `Status: ${String(it.status ?? 'info').toUpperCase()} — checked ${raw.probed ?? 0} of ${raw.found ?? 0} known hosts${raw.truncated ? ' (risky-looking names first, capped at 40)' : ''}`, ''];
   for (const k of EXPOSURE_ORDER) if (counts[k]) lines.push(`  ${counts[k]} × ${EXPOSURE_CATEGORY[k] ?? k}`);
   const issues: string[] = (it.issues ?? []).map((i: any) => String(i.key));
   if (issues.length) { lines.push('', 'What to do:'); for (const k of issues) lines.push(`  - ${EXPOSURE_ISSUE[k] ?? k}`); }
@@ -1180,9 +1180,9 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'exposure_map',
-    title: 'External Exposure Map',
+    title: 'Exposed Admin Page Check',
     outputSchema: exposureOutputShape,
-    annotations: annotate('External Exposure Map'),
+    annotations: annotate('Exposed Admin Page Check'),
     description:
       "Map what an organisation exposes to the internet beyond its home page: subdomains from Certificate Transparency logs (plus hosts DechoNet has already observed), each opened once from outside and sorted into developer/ops tools, directory listings, admin screens, VPN/remote-access logins, staging servers, default install pages, login pages and so on — the forgotten assets AI-driven attack tools look for first. " +
       'Use this when a user wants to know their attack surface or after a breach in their sector. Returns counts per category, a verdict (bad/warn/ok) and what to do. Public view only: the per-host list and a sensitive-file check are shown to the verified domain owner on the web report (DNS TXT), never through this tool. ' +
