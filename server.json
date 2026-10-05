@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.dechonet/mcp",
-  "description": "20 domain recon tools for AI agents: DNS, SSL, headers, email, subdomains, lookalikes, changes.",
+  "description": "23 security tools for AI agents: phishing links, exposure maps, DNS, SSL, PQC, headers, email.",
   "repository": {
     "url": "https://github.com/node-man/dechonet-mcp",
     "source": "github"
   },
-  "version": "1.2.4",
+  "version": "1.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dechonet-mcp",
-      "version": "1.2.4",
+      "version": "1.3.0",
       "transport": {
         "type": "stdio"
       },

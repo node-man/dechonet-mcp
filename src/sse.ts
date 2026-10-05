@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+// DEPRECATED legacy HTTP+SSE transport (old `server.tool` API: no outputSchema,
+// no annotations). The hosted endpoint https://dechonet.com/mcp (Streamable HTTP)
+// replaces it; kept only so existing self-hosted setups keep working. New
+// features land in index.ts (stdio) and the remote registry, not here.
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { createServer } from 'http';
@@ -9,7 +14,7 @@ const PORT = parseInt(process.env.PORT || '3100', 10);
 
 const server = new McpServer({
   name: 'dechonet',
-  version: '1.0.0',
+  version: '1.3.0',
 });
 
 // Register all tools
@@ -65,7 +70,7 @@ const httpServer = createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       name: 'dechonet-mcp',
-      version: '1.0.0',
+      version: '1.3.0',
       tools: tools.map(t => t.name),
       transport: 'sse',
     }));

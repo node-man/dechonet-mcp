@@ -109,7 +109,7 @@ const watchDomainOutputShape = {
     reportUrl: z.string(),
 };
 const WATCHABLE_TOOLS = {
-    ssl: 'util/ssl', dns: 'util/dns', http: 'util/http', rdap: 'util/rdap', owasp: 'util/owasp', impersonation: 'util/impersonation', pqc: 'util/pqc',
+    ssl: 'util/ssl', dns: 'util/dns', http: 'util/http', rdap: 'util/rdap', owasp: 'util/owasp', impersonation: 'util/impersonation', pqc: 'util/pqc', exposure: 'util/exposure',
 };
 const DEFAULT_WATCH_TOOLS = ['ssl', 'dns', 'http', 'rdap'];
 // SYNC with GOLIVE_OUTPUT_SCHEMA in the monorepo remote registry.
@@ -170,6 +170,8 @@ function formatPqc(data, url) {
             lines.push(`  - ${fn ? fn(f.detail) : f.key}`);
         }
     }
+    if (r.redirectsTo)
+        lines.push('', `Note: ${data?.host ?? ''} redirects to ${r.redirectsTo}. Visitors land there and its result can differ — run pqc_readiness on ${r.redirectsTo} too.`);
     lines.push('');
     lines.push('Scope: public TLS endpoint on port 443 only — an external indicator, not a full PQC audit.');
     lines.push(`Full interactive report (share this link with the user): ${url}`);
@@ -469,6 +471,7 @@ const GOLIVE_FINDING = {
     no_dns: () => 'No A/AAAA record — the domain does not resolve',
     no_propagation: () => 'No value resolved from any resolver',
     propagating: () => 'Resolvers disagree — still propagating, re-check shortly',
+    geo_variation: () => 'Resolvers get different addresses with a short TTL — geo-DNS / CDN load balancing, not an unfinished change',
     tls_unavailable: () => 'HTTPS certificate could not be observed',
     chain_invalid: () => 'Certificate chain failed validation',
     cert_expired: () => 'SSL certificate has expired',
@@ -506,6 +509,106 @@ function formatGolive(data, url) {
             verdict: String(a.verdict ?? ''),
             passCount: Number(a.passCount ?? 0), warnCount: Number(a.warnCount ?? 0), failCount: Number(a.failCount ?? 0),
             checks: checks.map((c) => ({ id: c.id, status: c.status })),
+            reportUrl: url,
+        },
+    };
+}
+const exposureOutputShape = {
+    status: z.string().describe('bad | warn | ok | info'),
+    found: z.number(), probed: z.number(),
+    counts: z.record(z.number()).describe('hosts per category (devtool, listing, admin, remote, staging, default_page, login, api, mail, web, …)'),
+    issues: z.array(z.string()),
+    reportUrl: z.string(),
+};
+const EXPOSURE_CATEGORY = {
+    listing: 'directory listings', devtool: 'developer/ops tools (Jenkins, Grafana, phpMyAdmin …)', admin: 'admin screens open to anyone',
+    remote: 'VPN / remote-access login pages', staging: 'staging / development servers', default_page: 'default web-server pages',
+    login: 'login pages', api: 'API endpoints', mail: 'webmail', web: 'regular web pages', redirect: 'redirects elsewhere',
+    error: 'errors / access denied (incl. IP-restricted)', no_web: 'no web answer', unresolved: 'not resolving', skipped: 'skipped (time budget)',
+};
+const EXPOSURE_ISSUE = {
+    exposure_directory_listing: 'A directory listing is open — turn off listing on the web server.',
+    exposure_devtool: 'Developer/ops tools face the internet — move them behind the VPN or restrict by IP.',
+    exposure_admin: 'An admin login opens from anywhere — add an IP allow-list or SSO/2FA in front of it.',
+    exposure_remote_access: 'VPN/remote-access login pages are visible — keep firmware patched and require MFA.',
+    exposure_staging: 'Staging/dev servers are public — restrict access or take them down.',
+    exposure_default_page: 'Default web-server pages are visible — likely unused servers; clean them up.',
+    exposure_login: 'Login pages exist — fine if expected; confirm 2FA and rate limiting.',
+    exposure_http_only: 'Some hosts answer over plain HTTP only.',
+    exposure_cert_error: 'Some hosts fail HTTPS with a certificate error.',
+};
+const EXPOSURE_ORDER = ['listing', 'devtool', 'admin', 'remote', 'staging', 'default_page', 'login', 'api', 'mail', 'web', 'redirect', 'error', 'no_web', 'unresolved', 'skipped'];
+function formatExposure(data, url) {
+    const raw = data?.raw ?? {};
+    const it = data?.interpretation ?? {};
+    const counts = raw.counts ?? {};
+    const lines = [`=== External Exposure Map: ${raw.domain ?? ''} ===`, `Status: ${String(it.status ?? 'info').toUpperCase()} — checked ${raw.probed ?? 0} of ${raw.found ?? 0} known hosts${raw.truncated ? ' (risky-looking names first, capped at 40)' : ''}`, ''];
+    for (const k of EXPOSURE_ORDER)
+        if (counts[k])
+            lines.push(`  ${counts[k]} × ${EXPOSURE_CATEGORY[k] ?? k}`);
+    const issues = (it.issues ?? []).map((i) => String(i.key));
+    if (issues.length) {
+        lines.push('', 'What to do:');
+        for (const k of issues)
+            lines.push(`  - ${EXPOSURE_ISSUE[k] ?? k}`);
+    }
+    lines.push('', 'Public view: counts and verdict only — which host shows what is shown to the verified domain owner on the web page (DNS TXT record), together with a sensitive-file check (.env, .git …). Each host is opened once (first page only); no logins, path guessing or exploits. Hosts never seen in Certificate Transparency are not covered.');
+    lines.push(`Full interactive report (the owner can verify there): ${url}`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: { status: String(it.status ?? 'info'), found: Number(raw.found ?? 0), probed: Number(raw.probed ?? 0), counts, issues, reportUrl: url },
+    };
+}
+const phishingOutputShape = {
+    verdict: z.string().describe('danger | suspicious | unreachable | official | no_signals | no_links'),
+    links: z.array(z.object({ url: z.string(), finalUrl: z.string(), verdict: z.string(), ageDays: z.number().nullable(), signals: z.array(z.string()) })),
+    reportUrl: z.string(),
+};
+const PHISHING_SIGNAL = {
+    known_malicious: (d) => `listed on public phishing/malware feeds (${d ?? ''})`,
+    apk_download: () => 'downloads an Android app (APK) — the classic smishing payload',
+    brand_in_subdomain: (d) => `wears the real brand domain ${d ?? ''} inside a different domain`,
+    brand_lookalike: (d) => `lookalike spelling of ${d ?? ''}`,
+    brand_keyword: (d) => `carries a brand name but is not the official domain (${d ?? ''})`,
+    domain_new: (d) => `domain registered only ${d ?? '?'} days ago`,
+    domain_recent: (d) => `domain registered ${d ?? '?'} days ago`,
+    punycode: () => 'internationalised (punycode) domain',
+    ip_address: () => 'points to a bare IP address',
+    tracked: () => 'already tracked by DechoNet as a possible brand impersonation',
+    shortener: () => 'shortened link (real destination was hidden)',
+    cheap_tld: (d) => `low-cost TLD common in phishing (.${d ?? ''})`,
+    not_resolving: () => 'domain does not resolve right now',
+};
+const PHISHING_VERDICT = {
+    danger: 'DANGER — strong phishing signs; do not open or enter anything, delete and report (Korea: 118)',
+    suspicious: 'SUSPICIOUS — warning signs; do not enter personal or payment details, contact the company through its official app/number',
+    unreachable: 'UNREACHABLE — the link no longer resolves (possibly taken down); still do not trust the message',
+    official: "OFFICIAL DOMAIN — lands on the company's own domain; still check the sender and the request",
+    no_signals: 'NO WARNING SIGNS FOUND — not a guarantee of safety; never enter passwords or card numbers from a text link',
+    no_links: 'NO LINKS FOUND in the text',
+};
+function formatPhishing(data, url) {
+    const links = data?.links ?? [];
+    const lines = [`=== Phishing Link Check ===`, `Verdict: ${PHISHING_VERDICT[data?.verdict] ?? String(data?.verdict ?? '')}`, ''];
+    for (const l of links) {
+        lines.push(`[${String(l.verdict).toUpperCase()}] ${l.input}`);
+        if (l.finalUrl && l.finalUrl !== l.input)
+            lines.push(`  lands on: ${l.finalUrl}${l.hops?.length ? ` (via ${l.hops.length} redirect(s))` : ''}`);
+        lines.push(`  domain age: ${l.ageDays == null ? 'unknown' : `${l.ageDays} days`}${l.registrar ? ` · registrar ${l.registrar}` : ''}`);
+        for (const s of l.signals ?? []) {
+            const f = PHISHING_SIGNAL[s.key];
+            lines.push(`  - (${s.severity}) ${f ? f(s.detail) : s.key}`);
+        }
+    }
+    if (data?.lure?.length)
+        lines.push('', `Message wording matches common smishing lures: ${data.lure.join(', ')} (a hint, not proof).`);
+    lines.push('', 'Scope: observable signals only, checked from DechoNet servers; cloaked pages (shown only to some phones/regions) can look clean. Never call a link "safe" — say "no warning signs found".');
+    lines.push(`Full interactive report (share this link with the user): ${url}`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: {
+            verdict: String(data?.verdict ?? ''),
+            links: links.map((l) => ({ url: String(l.input), finalUrl: String(l.finalUrl ?? ''), verdict: String(l.verdict), ageDays: typeof l.ageDays === 'number' ? l.ageDays : null, signals: (l.signals ?? []).map((s) => String(s.key)) })),
             reportUrl: url,
         },
     };
@@ -557,7 +660,7 @@ export const tools = [
         title: 'HTTP Security Headers Audit',
         outputSchema: interpOutputShape,
         annotations: annotate('HTTP Security Headers Audit'),
-        description: "Follow a URL's HTTP redirect chain and audit response security headers (CSP, HSTS, X-Frame-Options, COOP, CORP, COEP, Permissions-Policy), grading A+ to F and flagging information leaks such as server-version disclosure. " +
+        description: "Follow a URL's HTTP redirect chain and audit response security headers (CSP, HSTS, X-Frame-Options, COOP, CORP, COEP, Permissions-Policy), grading A+ to F on the six core headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy; COOP/CORP/COEP are reported but not graded) and flagging information leaks such as server-version disclosure. " +
             'Use this for HTTP-layer/header posture. Use ssl_check instead for certificate or TLS-handshake issues, or security_scan for a full domain report. ' +
             'Read-only (an HTTP GET-style probe that sends no payload); requires no API key; rate-limited. Returns a text report: grade, header findings, redirect trace, issues, and actions.',
         schema: {
@@ -869,7 +972,9 @@ export const tools = [
                     results.reverseDns = get(rdns);
                     results.asn = get(asn);
                 }
-                // Calculate health score
+                // Calculate health score. SYNC: mirrors src/lib/scoring/health.ts (weights,
+                // 0.4/0.15 per critical/warning, +0.1 when partial, grade cuts 90/80/70/50/40);
+                // tests/unit/mcp-parity.test.ts pins these numbers.
                 const weights = { rdap: 10, dns: 18, ssl: 18, http: 14, email: 14, propagation: 8, port: 8, reverseDns: 5, asn: 5 };
                 let score = 100;
                 const areas = [];
@@ -885,13 +990,15 @@ export const tools = [
                         continue;
                     const criticals = interp.issues?.filter((i) => i.severity === 'critical')?.length || 0;
                     const warnings = interp.issues?.filter((i) => i.severity === 'warning')?.length || 0;
-                    const lost = Math.min(weight, Math.round(weight * 0.4 * criticals + weight * 0.15 * warnings));
+                    let lost = Math.min(weight, Math.round(weight * 0.4 * criticals + weight * 0.15 * warnings));
+                    if (interp.partial && lost < weight)
+                        lost = Math.min(weight, lost + Math.round(weight * 0.1));
                     score -= lost;
                     const status = lost === 0 ? 'OK' : `ISSUE (-${lost})`;
                     areas.push(`${key}: ${status}`);
                 }
                 score = Math.max(0, score);
-                const grade = score >= 95 ? 'A+' : score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
+                const grade = score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B' : score >= 50 ? 'C' : score >= 40 ? 'D' : 'F';
                 const lines = [
                     `=== ${domain} Security Report ===`,
                     `Health Score: ${score}/100 (Grade ${grade})`,
@@ -1011,7 +1118,7 @@ export const tools = [
             'Not read-only (it creates a watch record) but idempotent: watching an already-watched domain returns the existing watch. No account, no email, no PII — a watch is keyed by domain+tool and its history page is a public unguessable URL you can share with the user. Rate-limited (a few watches per minute).',
         schema: {
             domain: z.string().describe("Registered domain to watch (e.g., 'example.com'). Scheme and path are stripped."),
-            tools: z.array(z.enum(['ssl', 'dns', 'http', 'rdap', 'owasp', 'impersonation', 'pqc'])).optional().describe("Which checks to re-run daily. Default ['ssl','dns','http','rdap'] (certificate, DNS, security headers, registration). Add 'owasp' and/or 'impersonation' for posture and brand-exposure tracking, 'pqc' to record the day post-quantum key exchange is turned on."),
+            tools: z.array(z.enum(['ssl', 'dns', 'http', 'rdap', 'owasp', 'impersonation', 'pqc', 'exposure'])).optional().describe("Which checks to re-run daily. Default ['ssl','dns','http','rdap'] (certificate, DNS, security headers, registration). Add 'owasp' and/or 'impersonation' for posture and brand-exposure tracking, 'pqc' to record the day post-quantum key exchange is turned on, 'exposure' to catch a newly exposed admin screen, dev tool or staging server."),
         },
         handler: async ({ domain, tools }) => {
             const clean = String(domain ?? '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').split('/')[0];
@@ -1066,6 +1173,54 @@ export const tools = [
         handler: async ({ domain }) => {
             try {
                 return formatPqc(await callApi(`/api/util/pqc?host=${enc(domain)}`), reportUrl('pqc', 'host', domain));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'phishing_link_check',
+        title: 'Phishing / Smishing Link Check',
+        outputSchema: phishingOutputShape,
+        annotations: annotate('Phishing / Smishing Link Check'),
+        description: 'Check the links in a suspicious text message (smishing) or e-mail before anyone taps them. Paste the whole message or a single URL: every link is extracted, followed through URL shorteners to its real destination, and judged on observable signals — domain age from RDAP, impersonation of Korean banks/couriers/telecoms/portals (brand keyword, lookalike spelling, or the brand domain worn as a subdomain), Android APK downloads, punycode, public phishing/malware feeds, and DechoNet\'s own impersonation tracking. ' +
+            'Use this when a user asks whether a link or message is a scam. Verdicts: danger, suspicious, unreachable, official (lands on the brand\'s own domain), no_signals (no warning signs found — never present this as "safe"). ' +
+            'Read-only: page bodies are never run and the message text is not stored; requires no API key; rate-limited. Returns per-link verdicts with reasons and a shareable report link.',
+        schema: {
+            text: z.string().describe('The suspicious message exactly as received (any language), or just the URL. Up to 5 links are checked.'),
+        },
+        handler: async ({ text }) => {
+            try {
+                const res = await fetch(`${BASE_URL}/api/util/phishing`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE },
+                    body: JSON.stringify({ text }),
+                });
+                const json = await res.json();
+                if (!json.ok)
+                    throw new Error(json.error?.message || 'API error');
+                return formatPhishing(json.data, reportUrl('phishing'));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'exposure_map',
+        title: 'External Exposure Map',
+        outputSchema: exposureOutputShape,
+        annotations: annotate('External Exposure Map'),
+        description: "Map what an organisation exposes to the internet beyond its home page: subdomains from Certificate Transparency logs (plus hosts DechoNet has already observed), each opened once from outside and sorted into developer/ops tools, directory listings, admin screens, VPN/remote-access logins, staging servers, default install pages, login pages and so on — the forgotten assets AI-driven attack tools look for first. " +
+            'Use this when a user wants to know their attack surface or after a breach in their sector. Returns counts per category, a verdict (bad/warn/ok) and what to do. Public view only: the per-host list and a sensitive-file check are shown to the verified domain owner on the web report (DNS TXT), never through this tool. ' +
+            'Read-only and passive beyond a single first-page request per host; no logins or path guessing; requires no API key; rate-limited (heavier than other tools — up to ~1 minute).',
+        schema: {
+            domain: z.string().describe("The organisation's domain (e.g., 'example.co.kr'). Scheme, path and a leading www. are stripped."),
+        },
+        handler: async ({ domain }) => {
+            try {
+                return formatExposure(await callApi(`/api/util/exposure?domain=${enc(domain)}`), reportUrl('exposure', 'domain', domain));
             }
             catch (e) {
                 return errorResult(e.message);
