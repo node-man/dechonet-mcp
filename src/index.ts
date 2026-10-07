@@ -7,7 +7,7 @@ import { tools } from './tools.js';
 const server = new McpServer(
   {
     name: 'dechonet',
-    version: '1.3.1',
+    version: '1.4.0',
   },
   {
     // SYNC with the `instructions` in the monorepo remote handler (lib/mcp/handler.ts).

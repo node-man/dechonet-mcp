@@ -7,7 +7,7 @@ async function callApi(path) {
     });
     const json = await res.json();
     if (!json.ok) {
-        throw new Error(json.error?.message || `API error: ${res.status}`);
+        throw Object.assign(new Error(json.error?.message || `API error: ${res.status}`), { reason: json.error?.reason });
     }
     return json.data;
 }
@@ -516,12 +516,12 @@ function formatGolive(data, url) {
 const exposureOutputShape = {
     status: z.string().describe('bad | warn | ok | info'),
     found: z.number(), probed: z.number(),
-    counts: z.record(z.number()).describe('hosts per category (devtool, listing, admin, remote, staging, default_page, login, api, mail, web, …)'),
+    counts: z.record(z.number()).describe('hosts per category (devtool, api_docs, listing, admin, remote, staging, default_page, login, api, mail, web, …)'),
     issues: z.array(z.string()),
     reportUrl: z.string(),
 };
 const EXPOSURE_CATEGORY = {
-    listing: 'directory listings', devtool: 'developer/ops tools (Jenkins, Grafana, phpMyAdmin …)', admin: 'admin screens open to anyone',
+    listing: 'directory listings', devtool: 'developer/ops tools (Jenkins, Grafana, phpMyAdmin …)', api_docs: 'API documentation open to anyone (Swagger UI, Redoc, GraphQL IDE, OpenAPI spec)', admin: 'admin screens open to anyone',
     remote: 'VPN / remote-access login pages', staging: 'staging / development servers', default_page: 'default web-server pages',
     login: 'login pages', api: 'API endpoints', mail: 'webmail', web: 'regular web pages', redirect: 'redirects elsewhere',
     error: 'errors / access denied (incl. IP-restricted)', no_web: 'no web answer', unresolved: 'not resolving', skipped: 'skipped (time budget)',
@@ -529,15 +529,16 @@ const EXPOSURE_CATEGORY = {
 const EXPOSURE_ISSUE = {
     exposure_directory_listing: 'A directory listing is open — turn off listing on the web server.',
     exposure_devtool: 'Developer/ops tools face the internet — move them behind the VPN or restrict by IP.',
+    exposure_api_docs: 'API documentation is public — the first map automated attack tools read. Put it behind a login or the internal network, and make sure every endpoint checks authorisation.',
     exposure_admin: 'An admin login opens from anywhere — add an IP allow-list or SSO/2FA in front of it.',
     exposure_remote_access: 'VPN/remote-access login pages are visible — keep firmware patched and require MFA.',
     exposure_staging: 'Staging/dev servers are public — restrict access or take them down.',
     exposure_default_page: 'Default web-server pages are visible — likely unused servers; clean them up.',
     exposure_login: 'Login pages exist — fine if expected; confirm 2FA and rate limiting.',
-    exposure_http_only: 'Some hosts answer over plain HTTP only.',
+    exposure_http_only: 'Some hosts answer over plain HTTP only (Chrome 154+, October 2026, shows visitors a warning screen first).',
     exposure_cert_error: 'Some hosts fail HTTPS with a certificate error.',
 };
-const EXPOSURE_ORDER = ['listing', 'devtool', 'admin', 'remote', 'staging', 'default_page', 'login', 'api', 'mail', 'web', 'redirect', 'error', 'no_web', 'unresolved', 'skipped'];
+const EXPOSURE_ORDER = ['listing', 'devtool', 'api_docs', 'admin', 'remote', 'staging', 'default_page', 'login', 'api', 'mail', 'web', 'redirect', 'error', 'no_web', 'unresolved', 'skipped'];
 function formatExposure(data, url) {
     const raw = data?.raw ?? {};
     const it = data?.interpretation ?? {};
@@ -578,6 +579,16 @@ const PHISHING_SIGNAL = {
     shortener: () => 'shortened link (real destination was hidden)',
     cheap_tld: (d) => `low-cost TLD common in phishing (.${d ?? ''})`,
     not_resolving: () => 'domain does not resolve right now',
+    free_hosting: (d) => `on a free hosting / dynamic-DNS platform (${d ?? ''}) — not a warning by itself`,
+    brand_account: (d) => `GitHub/GitLab account page named after ${d ?? 'a brand'} (may be the brand's own)`,
+    free_hosting_lure: (d) => `free-hosting address carries a lure word (${d ?? ''})`,
+    page_login: () => 'free-hosted page asks for a password or email',
+    page_brand_login: (d) => `free-hosted page shows ${d ?? 'a brand'} and asks for login details`,
+    page_brand: (d) => `page title names ${d ?? 'a brand'} (no login form)`,
+    seed_phrase: () => 'asks for a wallet recovery phrase or private key',
+    clickfix: () => 'fake "verify you are human" page telling the visitor to paste a command into Win+R / PowerShell (ClickFix malware lure)',
+    lure_message_free_hosting: () => 'message carries a smishing lure and the link is on free hosting',
+    geo_divergent: (d) => `a Korean phone and a visitor abroad land on different sites (abroad: ${d ?? ''}) — possible cloaking`,
 };
 const PHISHING_VERDICT = {
     danger: 'DANGER — strong phishing signs; do not open or enter anything, delete and report (Korea: 118)',
@@ -962,8 +973,16 @@ export const tools = [
                     dns: get(dns), ssl: get(ssl), http: get(http), email: get(email),
                     port: get(port), propagation: get(propagation), rdap: get(rdap),
                 };
+                // Areas that can't apply are left out of the score (SYNC: health.ts healthScore).
+                const na = new Set();
+                if (rdap.status === 'rejected' && rdap.reason?.reason === 'rdap_no_service')
+                    na.add('rdap');
                 // Extract origin IP for rDNS + ASN
                 const aRecord = results.dns?.raw?.records?.find((r) => r.type === 'A');
+                if (!aRecord) {
+                    na.add('reverseDns');
+                    na.add('asn');
+                }
                 if (aRecord) {
                     const [rdns, asn] = await Promise.allSettled([
                         callApi(`/api/util/reverse-dns?query=${enc(aRecord.value)}`),
@@ -976,12 +995,18 @@ export const tools = [
                 // 0.4/0.15 per critical/warning, +0.1 when partial, grade cuts 90/80/70/50/40);
                 // tests/unit/mcp-parity.test.ts pins these numbers.
                 const weights = { rdap: 10, dns: 18, ssl: 18, http: 14, email: 14, propagation: 8, port: 8, reverseDns: 5, asn: 5 };
-                let score = 100;
+                let applicable = 0;
+                let lostTotal = 0;
                 const areas = [];
                 for (const [key, weight] of Object.entries(weights)) {
                     const r = results[key];
+                    if (na.has(key)) {
+                        areas.push(`${key}: N/A (not scored — ${key === 'rdap' ? 'no RDAP for this TLD' : 'no A record'})`);
+                        continue;
+                    }
+                    applicable += weight;
                     if (!r) {
-                        score -= weight;
+                        lostTotal += weight;
                         areas.push(`${key}: FAILED (-${weight})`);
                         continue;
                     }
@@ -993,11 +1018,11 @@ export const tools = [
                     let lost = Math.min(weight, Math.round(weight * 0.4 * criticals + weight * 0.15 * warnings));
                     if (interp.partial && lost < weight)
                         lost = Math.min(weight, lost + Math.round(weight * 0.1));
-                    score -= lost;
+                    lostTotal += lost;
                     const status = lost === 0 ? 'OK' : `ISSUE (-${lost})`;
                     areas.push(`${key}: ${status}`);
                 }
-                score = Math.max(0, score);
+                const score = applicable === 0 ? 0 : Math.max(0, Math.min(100, Math.round((100 * (applicable - lostTotal)) / applicable)));
                 const grade = score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B' : score >= 50 ? 'C' : score >= 40 ? 'D' : 'F';
                 const lines = [
                     `=== ${domain} Security Report ===`,
@@ -1052,7 +1077,7 @@ export const tools = [
         annotations: annotate('OWASP Security Checkup'),
         description: "Assess a domain's OWASP posture from EXTERNAL OBSERVATION only: the OWASP Secure Headers Project plus the externally observable Top 10 subset — A02 Cryptographic Failures (TLS/cert), A05 Security Misconfiguration (header/info leaks), and A06 Vulnerable & Outdated Components (version disclosure) — returning an A+ to F grade. " +
             'Scope: A01 (Access Control), A03 (Injection), A04, A07 (Authentication), A08, A09 and A10 (SSRF) are not checked — they need authenticated access or active/injection testing, so the result lists them as out-of-scope rather than "pass". Present the result as an external-posture check, not a full OWASP Top 10 assessment. ' +
-            'Unlike security_scan this is fully PASSIVE (a normal HTTP GET plus a public CT-log lookup, no port scan), so it is safe and lawful to run on domains you do not own. Use http_security or ssl_check for depth on one layer. ' +
+            'Unlike security_scan this is PASSIVE (a normal HTTPS request, the TLS certificate and a public CT-log lookup; no port scan, no path probing), so it is suitable for domains you do not own. The sensitive-file check (.env, .git, server-status) runs only for the verified domain owner on the web report (DNS TXT), never through this tool. Use http_security or ssl_check for depth on one layer. ' +
             'Read-only; requires no API key; rate-limited. Returns a text report: grade, per-category findings, the out-of-scope list, and a shareable report link.',
         schema: {
             host: z.string().describe("Hostname to assess, without scheme (e.g., 'example.com'). The host portion of a pasted URL is also accepted."),
@@ -1184,9 +1209,9 @@ export const tools = [
         title: 'Phishing / Smishing Link Check',
         outputSchema: phishingOutputShape,
         annotations: annotate('Phishing / Smishing Link Check'),
-        description: 'Check the links in a suspicious text message (smishing) or e-mail before anyone taps them. Paste the whole message or a single URL: every link is extracted, followed through URL shorteners to its real destination, and judged on observable signals — domain age from RDAP, impersonation of Korean banks/couriers/telecoms/portals (brand keyword, lookalike spelling, or the brand domain worn as a subdomain), Android APK downloads, punycode, public phishing/malware feeds, and DechoNet\'s own impersonation tracking. ' +
+        description: 'Check the links in a suspicious text message (smishing) or e-mail before anyone taps them. Paste the whole message or a single URL: every link is extracted, followed through URL shorteners to its real destination, and judged on observable signals — domain age from RDAP, impersonation of Korean banks/couriers/telecoms/portals and global brands incl. AI services such as ChatGPT/Claude/Gemini (brand keyword, lookalike spelling, or the brand domain worn as a subdomain), ClickFix pages (a fake "verify you are human" check that has the visitor paste a command into Win+R/PowerShell), Android APK downloads, punycode, public phishing/malware feeds, and DechoNet\'s own impersonation tracking. ' +
             'Use this when a user asks whether a link or message is a scam. Verdicts: danger, suspicious, unreachable, official (lands on the brand\'s own domain), no_signals (no warning signs found — never present this as "safe"). ' +
-            'Read-only: page bodies are never run and the message text is not stored; requires no API key; rate-limited. Returns per-link verdicts with reasons and a shareable report link.',
+            'Read-only: the first 64 KB of the landing page is read but scripts never run, and the message text is not stored; requires no API key; rate-limited. Returns per-link verdicts with reasons and a shareable report link.',
         schema: {
             text: z.string().describe('The suspicious message exactly as received (any language), or just the URL. Up to 5 links are checked.'),
         },
