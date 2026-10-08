@@ -2,7 +2,7 @@
 
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-**23 tools, free, no API key.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — and a daily **watch** you can set from the agent.
+**25 tools. No API key needed for non-commercial use.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — **infrastructure history and pivots** (past nameservers/IPs/issuers, and other domains seen on the same rare infrastructure), and a daily **watch** you can set from the agent.
 
 Every result comes back interpreted, not just as raw JSON: a status, the key numbers, each issue with severity and confidence, and the concrete action to take. That is what an agent needs to tell a human what to do next.
 
@@ -10,7 +10,7 @@ Every result comes back interpreted, not just as raw JSON: a status, the key num
 
 ## Zero-install: remote endpoint
 
-No npx, no install, no key. Point any MCP client that speaks Streamable HTTP at:
+No npx, no install. Point any MCP client that speaks Streamable HTTP at:
 
 ```
 https://dechonet.com/mcp
@@ -70,6 +70,8 @@ npm install -g dechonet-mcp
 | `owasp_check` | OWASP-mapped checks that can be observed passively (headers, TLS, exposed files), honest about what is out of scope |
 | `impersonation_exposure` | Brand impersonation exposure grade: third-party lookalikes + exposed operational subdomains + wildcard certs |
 | `golive_check` | Go-live readiness — DNS, propagation, SSL, HTTP, registration in one READY / CAUTION / NOT READY verdict |
+| `domain_history` | Past nameservers, A/AAAA, MX, certificate issuer, registrar (and an IP's ASN/PTR) with first and last seen — from DechoNet's own observations, not passive DNS |
+| `infrastructure_pivot` | Other domains DechoNet saw with the same nameserver, IP, MX, issuer or registrar. **Needs a free API key** (`DECHONET_API_KEY`); shared infrastructure returns a count only |
 | `domain_changes` | What changed since the last check — status, grade, issuer, DNS, issues. Works from lookup history even without a watch |
 | `pqc_readiness` | Post-quantum TLS readiness: hybrid X25519MLKEM768 key exchange, whether the origin server or a CDN edge provides it, certificate signature algorithms. External indicator, not a full PQC audit |
 | `watch_domain` | Register a domain for daily re-checks (SSL, DNS, HTTP, RDAP) so `domain_changes` accumulates a timeline. The only tool that writes; idempotent |
@@ -129,7 +131,12 @@ All data comes from public sources (DNS, HTTP headers, SSL certificates, CT logs
 |----------|---------|-------------|
 | `DECHONET_URL` | `https://dechonet.com` | API base URL |
 | `DECHONET_LOCALE` | `en` | Response language (`en` or `ko`) |
+| `DECHONET_API_KEY` | — | Optional free API key from your [DechoNet account](https://dechonet.com/monitoring): your own rate-limit bucket, and required for `infrastructure_pivot` |
 | `PORT` | `3100` | SSE server port |
+
+## Terms of use
+
+Free use (with or without a key) is for **non-commercial purposes** from **November 8, 2026** — personal learning and research, checking your own domains, non-profit work. Using DechoNet inside a paid product, for clients, or regularly for company work needs **MCP·API Pro** ([dechonet.com/pro](https://dechonet.com/pro)); until payments open, ask at support@dechonet.com. Full terms: [dechonet.com/terms](https://dechonet.com/terms) §4.
 
 ## About DechoNet
 

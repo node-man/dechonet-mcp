@@ -14,7 +14,7 @@ const PORT = parseInt(process.env.PORT || '3100', 10);
 
 const server = new McpServer({
   name: 'dechonet',
-  version: '1.4.0',
+  version: '1.5.0',
 });
 
 // Register all tools
@@ -70,7 +70,7 @@ const httpServer = createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       name: 'dechonet-mcp',
-      version: '1.4.0',
+      version: '1.5.0',
       tools: tools.map(t => t.name),
       transport: 'sse',
     }));

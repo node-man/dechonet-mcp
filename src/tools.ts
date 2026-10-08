@@ -9,9 +9,12 @@ interface ApiResponse {
   error?: { code: string; message: string };
 }
 
+// Optional free API key (account page): own rate-limit bucket; needed for infrastructure_pivot.
+const API_KEY = (process.env.DECHONET_API_KEY ?? '').trim();
+
 async function callApi(path: string): Promise<any> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE },
+    headers: { 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
   });
   const json: ApiResponse = await res.json();
   if (!json.ok) {
@@ -127,6 +130,37 @@ const domainChangesOutputShape = {
   historyChangeCount: z.number().optional().describe('Changes found between the last two stored lookups per tool (no watch needed)'),
   historyChanges: z.array(z.object({ endpoint: z.string().optional(), kind: z.string(), summary: z.string(), since: z.string().optional(), changedAt: z.string().optional() })).optional().describe('Lookup-to-lookup changes, newest first'),
   reportUrl: z.string().describe('Where a human can start or manage monitoring'),
+};
+
+
+// History & pivot (plan E2): plain text for the agent + structuredContent.
+function formatHistory(d: any) {
+  const lines = [`=== Observed infrastructure history: ${d?.target ?? ''} ===`];
+  if (!d?.observed) lines.push('DechoNet has no observations for this target yet. Run security_scan or dns_lookup now; later calls will show how its infrastructure changes.');
+  for (const k of d?.kinds ?? []) {
+    lines.push('', `${k.kind}:`);
+    for (const v of k.values) lines.push(`  ${v.value}  (first ${String(v.firstSeen).slice(0, 10)} · last ${String(v.lastSeen).slice(0, 10)} · seen ${v.seen}×)`);
+  }
+  lines.push('', `Coverage: ${d?.note ?? ''}`);
+  return { content: [{ type: 'text' as const, text: lines.join('\n') }], structuredContent: { target: String(d?.target ?? ''), observed: !!d?.observed, kinds: d?.kinds ?? [], note: String(d?.note ?? '') } };
+}
+function formatPivot(d: any) {
+  const lines = [`=== Targets seen with ${d?.kind} = ${d?.value} ===`, `${d?.total ?? 0}${d?.totalCapped ? '+' : ''} target(s) in DechoNet's observations.`];
+  if (d?.sharedInfra) lines.push('Shared infrastructure — sharing it says nothing about common ownership; no list is given.');
+  for (const t of d?.targets ?? []) lines.push(`  ${t.target}  (first ${String(t.firstSeen).slice(0, 10)} · last ${String(t.lastSeen).slice(0, 10)})`);
+  if ((d?.targets?.length ?? 0) < (d?.total ?? 0) && !d?.sharedInfra) lines.push(`  … showing ${d.targets.length} (limit ${d.limit}; MCP·API Pro shows more).`);
+  lines.push('', `Coverage: ${d?.note ?? ''}`);
+  return { content: [{ type: 'text' as const, text: lines.join('\n') }], structuredContent: { kind: String(d?.kind ?? ''), value: String(d?.value ?? ''), sharedInfra: !!d?.sharedInfra, total: Number(d?.total ?? 0), targets: d?.targets ?? [], note: String(d?.note ?? '') } };
+}
+
+// SYNC with HISTORY_OUTPUT_SCHEMA / PIVOT_OUTPUT_SCHEMA in the monorepo remote registry.
+const historyOutputShape = {
+  target: z.string(), observed: z.boolean(), note: z.string().optional(),
+  kinds: z.array(z.object({ kind: z.string(), values: z.array(z.object({ value: z.string(), firstSeen: z.string(), lastSeen: z.string(), seen: z.number() })) })),
+};
+const pivotOutputShape = {
+  kind: z.string(), value: z.string(), sharedInfra: z.boolean().optional(), total: z.number(), note: z.string().optional(),
+  targets: z.array(z.object({ target: z.string(), firstSeen: z.string(), lastSeen: z.string() })),
 };
 
 // SYNC with WATCH_DOMAIN_OUTPUT_SCHEMA in the monorepo remote registry.
@@ -1106,6 +1140,41 @@ export const tools: ToolDef[] = [
     },
     handler: async ({ domain }) => {
       try { return formatDomainChanges(await callApi(`/api/util/changes?query=${enc(domain)}`), 'https://dechonet.com/pro?src=mcp-report'); }
+      catch (e: any) { return errorResult(e.message); }
+    },
+  },
+  {
+    name: 'domain_history',
+    title: 'Infrastructure History',
+    outputSchema: historyOutputShape,
+    annotations: annotate('Infrastructure History'),
+    description:
+      'Show how a domain\'s (or IPv4 address\'s) infrastructure has changed over time from DechoNet\'s stored observations: nameservers, A/AAAA, MX, CNAME, certificate issuer, registrar, RDAP nameservers and status, and for an IP its ASN and PTR — each value with when it was first and last seen. ' +
+      'Use this when the question is about the past ("when did the nameservers change?", "which IPs has it used?"); use dns_lookup or rdap_lookup for the current state. Coverage: only what DechoNet itself observed (lookups, watches, own discovery) — not passive DNS. ' +
+      'Read-only; requires no API key; rate-limited. Returns per-kind value timelines and a coverage note.',
+    schema: {
+      target: z.string().describe("Domain (e.g., 'example.com') or IPv4 address. Scheme, path and a leading www. are stripped."),
+    },
+    handler: async ({ target }) => {
+      try { return formatHistory(await callApi(`/api/util/history?target=${enc(target)}`)); }
+      catch (e: any) { return errorResult(e.message); }
+    },
+  },
+  {
+    name: 'infrastructure_pivot',
+    title: 'Infrastructure Pivot',
+    outputSchema: pivotOutputShape,
+    annotations: annotate('Infrastructure Pivot'),
+    description:
+      'Find other domains DechoNet has seen with the same infrastructure value — a nameserver, IP address, MX host, certificate issuer or registrar — with first and last seen, to map related infrastructure (e.g. other phishing domains on the same rare nameserver). ' +
+      'Use it after domain_history or dns_lookup gives you a distinctive value. Shared infrastructure (CDN edges, public CAs, large registrars and DNS hosts) returns a count only, since sharing it says nothing about ownership. ' +
+      'Read-only; REQUIRES a free DechoNet API key (account page; remote: send Authorization: Bearer dn_…, npm: set DECHONET_API_KEY); 20 rows, 100 with MCP·API Pro; rate-limited. Coverage: only DechoNet\'s own observations.',
+    schema: {
+      kind: z.enum(['dns:a', 'dns:aaaa', 'dns:ns', 'dns:mx', 'ssl:issuer', 'rdap:registrar', 'rdap:ns']).describe('Which kind of value to pivot on.'),
+      value: z.string().describe("The value itself, e.g. 'ns1.example-dns.net' or '203.0.113.9'."),
+    },
+    handler: async ({ kind, value }) => {
+      try { return formatPivot(await callApi(`/api/util/pivot?kind=${enc(kind)}&value=${enc(value)}`)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
