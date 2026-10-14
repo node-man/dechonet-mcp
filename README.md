@@ -2,7 +2,7 @@
 
 **[dechonet.com](https://dechonet.com)** · [Remote MCP (no install)](https://dechonet.com/mcp) · [Phishing link check](https://dechonet.com/util/phishing) · [Free web tools](https://dechonet.com/util) · [HTTP API](https://dechonet.com/developers) · [Detection benchmark](https://dechonet.com/benchmark) · [Status](https://dechonet.com/status)
 
-[![smithery badge](https://smithery.ai/badge/nodeman/dechonet)](https://smithery.ai/servers/nodeman/dechonet) [![Glama MCP connector](https://glama.ai/mcp/connectors/com.dechonet/mcp/badges/score.svg)](https://glama.ai/mcp/connectors/com.dechonet/mcp) [![npm](https://img.shields.io/npm/v/dechonet-mcp)](https://www.npmjs.com/package/dechonet-mcp)
+[![Smithery](https://img.shields.io/badge/Smithery-nodeman%2Fdechonet-orange)](https://smithery.ai/servers/nodeman/dechonet) [![Glama MCP connector](https://glama.ai/mcp/connectors/com.dechonet/mcp/badges/score.svg)](https://glama.ai/mcp/connectors/com.dechonet/mcp) [![npm](https://img.shields.io/npm/v/dechonet-mcp)](https://www.npmjs.com/package/dechonet-mcp)
 
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
