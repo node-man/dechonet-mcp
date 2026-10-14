@@ -1,5 +1,9 @@
 # DechoNet MCP Server
 
+**[dechonet.com](https://dechonet.com)** · [Remote MCP (no install)](https://dechonet.com/mcp) · [Phishing link check](https://dechonet.com/util/phishing) · [Free web tools](https://dechonet.com/util) · [HTTP API](https://dechonet.com/developers) · [Detection benchmark](https://dechonet.com/benchmark) · [Status](https://dechonet.com/status)
+
+[![smithery badge](https://smithery.ai/badge/nodeman/dechonet)](https://smithery.ai/servers/nodeman/dechonet) [![Glama MCP connector](https://glama.ai/mcp/connectors/com.dechonet/mcp/badges/score.svg)](https://glama.ai/mcp/connectors/com.dechonet/mcp) [![npm](https://img.shields.io/npm/v/dechonet-mcp)](https://www.npmjs.com/package/dechonet-mcp)
+
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
 **25 tools. No API key needed for non-commercial use.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — **infrastructure history and pivots** (past nameservers/IPs/issuers, and other domains seen on the same rare infrastructure), and a daily **watch** you can set from the agent.
@@ -144,7 +148,12 @@ Free use (with or without a key) is for **non-commercial purposes** from **Novem
 
 - 🌐 **Web tools** (free, no sign-up): https://dechonet.com
 - 📘 **Guides** (fix common DNS/SSL/HTTP/email errors): https://dechonet.com/guides
+- 🎣 **Phishing / smishing link check** (opens the link like a Korean phone): https://dechonet.com/util/phishing
+- 🩺 **Full domain check** (DNS, SSL, headers, email auth, ports, PQC in one score): https://dechonet.com/util/all
 - 🔔 **Monitoring** (daily re-checks, change history): https://dechonet.com/pro
+- 🛠 **HTTP API** (same tools, OpenAPI): https://dechonet.com/developers · https://dechonet.com/openapi.json
+- 📏 **How results are judged** / **monthly detection benchmark**: https://dechonet.com/methodology · https://dechonet.com/benchmark
+- 🟢 **Service status**: https://dechonet.com/status
 - 🐦 **X**: https://x.com/Dechonetwork
 
 MIT licensed. Issues and PRs welcome.
