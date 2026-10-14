@@ -2,10 +2,12 @@ import { z } from 'zod';
 const BASE_URL = process.env.DECHONET_URL || 'https://dechonet.com';
 const LOCALE = process.env.DECHONET_LOCALE || 'en';
 // Optional free API key (account page): own rate-limit bucket; needed for infrastructure_pivot.
+const accountCookie = (path) => /^\/api\/account\/asm\/nuclei-(start|status|cancel)(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? { Cookie: process.env.DECHONET_SESSION_COOKIE } : {};
 const API_KEY = (process.env.DECHONET_API_KEY ?? '').trim();
+const caseCookie = (path) => /^\/api\/(?:pilot\/kit-(?:search|observe)|account\/asm\/nuclei-(?:start|status|cancel))(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? { Cookie: process.env.DECHONET_SESSION_COOKIE } : {};
 async function callApi(path) {
     const res = await fetch(`${BASE_URL}${path}`, {
-        headers: { 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
+        headers: { ...caseCookie(path), 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
     });
     const json = await res.json();
     if (!json.ok) {
@@ -16,7 +18,7 @@ async function callApi(path) {
 async function postApi(path, payload) {
     const res = await fetch(`${BASE_URL}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE },
+        headers: { ...caseCookie(path), 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE },
         body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -114,7 +116,11 @@ function formatHistory(d) {
             lines.push(`  ${v.value}  (first ${String(v.firstSeen).slice(0, 10)} · last ${String(v.lastSeen).slice(0, 10)} · seen ${v.seen}×)`);
     }
     lines.push('', `Coverage: ${d?.note ?? ''}`);
-    return { content: [{ type: 'text', text: lines.join('\n') }], structuredContent: { target: String(d?.target ?? ''), observed: !!d?.observed, kinds: d?.kinds ?? [], note: String(d?.note ?? '') } };
+    const t = String(d?.target ?? '');
+    // No history page on the site: the human link is the target's current state (the full scan, or reverse DNS for an IP).
+    const url = /^\d{1,3}(\.\d{1,3}){3}$/.test(t) ? reportUrl('reverse-dns', 'query', t) : reportUrl('all', 'query', t);
+    lines.push(`Current state on DechoNet (share this link with the user): ${url}`);
+    return { content: [{ type: 'text', text: lines.join('\n') }], structuredContent: { target: t, observed: !!d?.observed, kinds: d?.kinds ?? [], note: String(d?.note ?? ''), reportUrl: url } };
 }
 function formatPivot(d) {
     const lines = [`=== Targets seen with ${d?.kind} = ${d?.value} ===`, `${d?.total ?? 0}${d?.totalCapped ? '+' : ''} target(s) in DechoNet's observations.`];
@@ -125,15 +131,17 @@ function formatPivot(d) {
     if ((d?.targets?.length ?? 0) < (d?.total ?? 0) && !d?.sharedInfra)
         lines.push(`  … showing ${d.targets.length} (limit ${d.limit}; MCP·API Pro shows more).`);
     lines.push('', `Coverage: ${d?.note ?? ''}`);
-    return { content: [{ type: 'text', text: lines.join('\n') }], structuredContent: { kind: String(d?.kind ?? ''), value: String(d?.value ?? ''), sharedInfra: !!d?.sharedInfra, total: Number(d?.total ?? 0), targets: d?.targets ?? [], note: String(d?.note ?? '') } };
+    const url = 'https://dechonet.com/methodology?src=mcp-report';
+    lines.push(`How DechoNet observes infrastructure (share this link with the user): ${url}`);
+    return { content: [{ type: 'text', text: lines.join('\n') }], structuredContent: { reportUrl: url, kind: String(d?.kind ?? ''), value: String(d?.value ?? ''), sharedInfra: !!d?.sharedInfra, total: Number(d?.total ?? 0), targets: d?.targets ?? [], note: String(d?.note ?? '') } };
 }
 // SYNC with HISTORY_OUTPUT_SCHEMA / PIVOT_OUTPUT_SCHEMA in the monorepo remote registry.
 const historyOutputShape = {
-    target: z.string(), observed: z.boolean(), note: z.string().optional(),
+    target: z.string(), observed: z.boolean(), note: z.string().optional(), reportUrl: z.string(),
     kinds: z.array(z.object({ kind: z.string(), values: z.array(z.object({ value: z.string(), firstSeen: z.string(), lastSeen: z.string(), seen: z.number() })) })),
 };
 const pivotOutputShape = {
-    kind: z.string(), value: z.string(), sharedInfra: z.boolean().optional(), total: z.number(), note: z.string().optional(),
+    kind: z.string(), value: z.string(), sharedInfra: z.boolean().optional(), total: z.number(), note: z.string().optional(), reportUrl: z.string(),
     targets: z.array(z.object({ target: z.string(), firstSeen: z.string(), lastSeen: z.string() })),
 };
 // SYNC with WATCH_DOMAIN_OUTPUT_SCHEMA in the monorepo remote registry.
@@ -370,6 +378,7 @@ const IMP_CAT = {
 };
 const IMP_FINDING = {
     lookalike_registered: (d) => `Registered lookalike domain: ${d} (verify ownership)`,
+    lookalike_established: (d) => `Established lookalike (registered before this domain or 3+ years ago, not counted): ${d}`,
     lookalike_same_operator: (d) => `Lookalike on the domain's own nameservers/IP: ${d} (likely a defensive registration — not counted)`,
     risky_subdomain: (d) => `Exposed subdomain: ${d}`,
     wildcard_cert: () => 'A wildcard certificate (*.domain) has been issued',
@@ -602,6 +611,28 @@ const phishingOutputShape = {
 };
 const PHISHING_SIGNAL = {
     known_malicious: (d) => `listed on public phishing/malware feeds (${d ?? ''})`,
+    page_brand_disposable: (d) => `page presents ${d ?? 'a brand'} on a throwaway domain (random or cheap TLD)`,
+    cloak_to_impersonated: (d) => `throwaway address named after ${d ?? 'a site'} that redirects to the real ${d ?? 'site'} (cloaking)`,
+    redirect_to_brand: (d) => `throwaway address redirecting straight to a big brand's official site (${d ?? ''})`,
+    exe_download: (_d) => `link downloads a desktop executable or remote-control client`,
+    brand_entry: (d) => `the received address is dressed up as ${d ?? 'a brand'} but leads to an unrelated site`,
+    url_userinfo: (d) => `disguised address: '${d ?? ''}' before '@' — the browser opens the host after it`,
+    host_suspended: (d) => `the hosting provider suspended the site (redirects to ${d ?? ''})`,
+    webrisk_listed: (d) => `Google Web Risk lists it (${d ?? ''}) — Google's judgement, a warning sign, not a confirmation`,
+    listed_suspicious: (d) => `on a public suspicious-phishing list (${d ?? ''}) — a warning sign, not a confirmation`,
+    brand_typo: (d) => `address is a misspelling of ${d ?? 'a brand'} (one edit or look-alike letters)`,
+    wallet_brand_free_host: (d) => `crypto wallet brand (${d ?? ''}) presented on free hosting — usually a seed-phrase kit`,
+    asks_sensitive: (d) => `page asks for sensitive data (${d ?? ''}: card / national ID / OTP / account / seed)`,
+    brand_redirect_cloak: (d) => `address dressed up as ${d ?? 'a brand'} that redirects to another company's official site (cloaking)`,
+    page_brand_lure: (d) => `page title uses brand ${d ?? ''} with a lure word (appeal, verify, account …) on free hosting`,
+    host_flagged: (d) => `the host/CDN (${d ?? ''}) already replaced the page with its phishing/abuse block screen`,
+    exfil_endpoint: (d) => `page code sends typed input to a messenger bot or relay (${d ?? ''})`,
+    login_hidden_path: () => 'sign-in form served from a hidden system folder (/.well-known/, file-manager plugin) — a kit on a hacked site',
+    compromised_path: (_d) => `login screen inside WordPress file folders of a hacked ordinary site`,
+    obfuscated_login: (_d) => `login page with deliberately obfuscated code`,
+    form_elsewhere: (d) => `password form posts to another domain (${d ?? ''})`,
+    kit_pattern: (d) => `several phishing-kit traits around one password form (${d ?? ''})`,
+    previously_flagged: (d) => `DechoNet already judged this link or its attacker-owned host phishing (since ${d ?? '?'}); kept for good`,
     apk_download: () => 'downloads an Android app (APK) — the classic smishing payload',
     brand_in_subdomain: (d) => `wears the real brand domain ${d ?? ''} inside a different domain`,
     brand_lookalike: (d) => `lookalike spelling of ${d ?? ''}`,
@@ -623,6 +654,8 @@ const PHISHING_SIGNAL = {
     seed_phrase: () => 'asks for a wallet recovery phrase or private key',
     clickfix: () => 'fake "verify you are human" page telling the visitor to paste a command into Win+R / PowerShell (ClickFix malware lure)',
     lure_message_free_hosting: () => 'message carries a smishing lure and the link is on free hosting',
+    human_gate: (d) => `a throwaway address (${d ?? ''}) shows only a "verify you are human" gate — kits hide the form from scanners`,
+    country_divergent: (d) => `a Korean phone and a Japanese phone land on different sites (one goes to ${d ?? ''}) — cloaking by country`,
     geo_divergent: (d) => `a Korean phone and a visitor abroad land on different sites (abroad: ${d ?? ''}) — possible cloaking`,
 };
 const PHISHING_VERDICT = {
@@ -685,7 +718,7 @@ export const tools = [
         title: 'SSL Certificate Check',
         outputSchema: interpOutputShape,
         annotations: annotate('SSL Certificate Check'),
-        description: "Inspect a host's served TLS/SSL certificate and connection: expiry date, issuer, SAN list, chain integrity, TLS version, and HSTS, returning an A+ to F grade weighted by certificate validity (40%), TLS version (25%), chain trust (15%), and HSTS (20%). " +
+        description: "Inspect a host's served TLS/SSL certificate and connection: expiry date, issuer, SAN list, chain integrity, revocation (OCSP, then CRL; unknown when neither answers — not graded unless revoked), TLS version, and HSTS, returning an A+ to F grade weighted by certificate validity (40%), TLS version (25%), chain trust (15%), and HSTS (20%). " +
             'Use this to diagnose certificate or HTTPS-handshake problems for one host. Use http_security instead to audit response security headers, or security_scan for an all-in-one domain report. ' +
             'Read-only: it completes a TLS handshake but sends no application data; requires no API key; rate-limited. Returns a text report: grade, expiry/issuer KPIs, issues, and actions.',
         schema: {
@@ -1174,7 +1207,7 @@ export const tools = [
         outputSchema: historyOutputShape,
         annotations: annotate('Infrastructure History'),
         description: 'Show how a domain\'s (or IPv4 address\'s) infrastructure has changed over time from DechoNet\'s stored observations: nameservers, A/AAAA, MX, CNAME, certificate issuer, registrar, RDAP nameservers and status, and for an IP its ASN and PTR — each value with when it was first and last seen. ' +
-            'Use this when the question is about the past ("when did the nameservers change?", "which IPs has it used?"); use dns_lookup or rdap_lookup for the current state. Coverage: only what DechoNet itself observed (lookups, watches, own discovery) — not passive DNS. ' +
+            'Use this when the question is about the past ("when did the nameservers change?", "which IPs has it used?"); use dns_lookup or rdap_lookup for the current state. Coverage: only what DechoNet itself observed (lookups, watches, own discovery, and a daily re-resolution of the Korean-brand and phishing names it tracks) — not full passive DNS. ' +
             'Read-only; requires no API key; rate-limited. Returns per-kind value timelines and a coverage note.',
         schema: {
             target: z.string().describe("Domain (e.g., 'example.com') or IPv4 address. Scheme, path and a leading www. are stripped."),
@@ -1287,7 +1320,7 @@ export const tools = [
         annotations: annotate('Phishing / Smishing Link Check'),
         description: 'Check the links in a suspicious text message (smishing) or e-mail before anyone taps them. Paste the whole message or a single URL: every link is extracted, followed through URL shorteners to its real destination, and judged on observable signals — domain age from RDAP, impersonation of Korean banks/couriers/telecoms/portals and global brands incl. AI services such as ChatGPT/Claude/Gemini (brand keyword, lookalike spelling, or the brand domain worn as a subdomain), ClickFix pages (a fake "verify you are human" check that has the visitor paste a command into Win+R/PowerShell), Android APK downloads, punycode, public phishing/malware feeds, and DechoNet\'s own impersonation tracking. ' +
             'Use this when a user asks whether a link or message is a scam. Verdicts: danger, suspicious, unreachable, official (lands on the brand\'s own domain), no_signals (no warning signs found — never present this as "safe"). ' +
-            'Read-only: the first 64 KB of the landing page is read but scripts never run, and the message text is not stored; requires no API key; rate-limited. Returns per-link verdicts with reasons and a shareable report link.',
+            'Reads landing-page HTML; inconclusive links may also run page scripts in isolated Chromium under the shared daily cap. DechoNet does not click, enter values or submit forms. The message text is not stored; requires no API key; rate-limited. Returns per-link verdicts with reasons and a shareable report link.',
         schema: {
             text: z.string().describe('The suspicious message exactly as received (any language), or just the URL. Up to 5 links are checked.'),
         },
@@ -1327,6 +1360,68 @@ export const tools = [
                 return errorResult(e.message);
             }
         },
+    },
+    {
+        name: 'case_kit_search',
+        title: 'Case render fingerprint search', description: "Search render fingerprints within an authenticated case and allowed public discovery data. Requires the case owner session or existing case access cookie; public API keys do not grant case access. Screen, same-kit and operational candidates are distinct; scores are proximity, not probability, operator identity or phishing verdicts. Kits can be sold or copied.", annotations: { title: 'Case render fingerprint search', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        outputSchema: { state: z.string(), results: z.array(z.record(z.unknown())) },
+        schema: { case: z.string().describe('Case token; requires separate authentication'), target: z.string().describe('Existing case member host') },
+        handler: async (args) => { try {
+            const data = await callApi(`/api/pilot/kit-search?case=${enc(args.case)}&target=${enc(args.target)}`);
+            return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
+        }
+        catch (e) {
+            return errorResult(e.message);
+        } },
+    },
+    {
+        name: 'case_kit_observe',
+        title: 'Case render fingerprint observation', description: "Explicitly observe an existing authenticated case member under conditional-render rules and daily cap. Requires edit access and current case owner session or access cookie. Search and page GET do not render; unavailable is not a clean result.", annotations: { title: 'Case render fingerprint observation', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        outputSchema: { state: z.string(), results: z.array(z.record(z.unknown())) },
+        schema: { case: z.string().describe('Case token; requires separate authentication'), target: z.string().describe('Existing case member host') },
+        handler: async (args) => { try {
+            const data = await postApi('/api/pilot/kit-observe', { case: args.case, target: args.target });
+            return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
+        }
+        catch (e) {
+            return errorResult(e.message);
+        } },
+    },
+    {
+        name: 'asm_nuclei_start', title: 'Owned ASM Nuclei start', description: "Explicitly start limited active requests to a selected currently verified asset in your owned ASM report. Requires current workspace edit access, ASM plan and current account-bound DNS TXT ownership (legacy public/domain-only proof is insufficient); public API keys grant no account authority. No exploits or arbitrary templates/CLI.",
+        annotations: { title: 'Owned ASM Nuclei start', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        outputSchema: { state: z.string() }, schema: { asmId: z.string().describe("Existing owned ASM report id"), target: z.string().describe("Exact selected http80 or https443 root URL"), confirm: z.string().describe("Explicit authorization: asm-nuclei-v1") },
+        handler: async ({ asmId, target, confirm }) => { try {
+            const data = await postApi('/api/account/asm/nuclei-start', { asmId, target, confirm });
+            return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
+        }
+        catch (e) {
+            return errorResult(e.message);
+        } },
+    },
+    {
+        name: 'asm_nuclei_status', title: 'Owned ASM Nuclei status', description: "Read private job status, coverage and sanitized evidence with current view permission and ownership. Partial, failed or unconfigured is not a clean result; technology detection is not proof of a vulnerability.",
+        annotations: { title: 'Owned ASM Nuclei status', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        outputSchema: { state: z.string() }, schema: { id: z.string().describe("Current workspace owned Nuclei job id") },
+        handler: async ({ id }) => { try {
+            const data = await callApi(`/api/account/asm/nuclei-status?id=${enc(id)}`);
+            return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
+        }
+        catch (e) {
+            return errorResult(e.message);
+        } },
+    },
+    {
+        name: 'asm_nuclei_cancel', title: 'Owned ASM Nuclei cancel', description: "Stop new requests and terminate this workspace scanner with edit permission. Already transmitted requests cannot be recalled. Poll for cancellation acknowledgement.",
+        annotations: { title: 'Owned ASM Nuclei cancel', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        outputSchema: { state: z.string() }, schema: { id: z.string().describe("Current workspace owned Nuclei job id") },
+        handler: async ({ id }) => { try {
+            const data = await postApi('/api/account/asm/nuclei-cancel', { id });
+            return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
+        }
+        catch (e) {
+            return errorResult(e.message);
+        } },
     },
 ];
 function enc(s) {

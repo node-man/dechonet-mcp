@@ -136,6 +136,7 @@ All data comes from public sources (DNS, HTTP headers, SSL certificates, CT logs
 | `DECHONET_URL` | `https://dechonet.com` | API base URL |
 | `DECHONET_LOCALE` | `en` | Response language (`en` or `ko`) |
 | `DECHONET_API_KEY` | — | Optional free API key from your [DechoNet account](https://dechonet.com/monitoring): your own rate-limit bucket, and required for `infrastructure_pivot` |
+| `DECHONET_SESSION_COOKIE` | — | Your own DechoNet login cookie, only for the [signed-in tools](#signed-in-tools). Keep it secret |
 | `PORT` | `3100` | SSE server port |
 
 ## Terms of use
@@ -157,3 +158,17 @@ Free use (with or without a key) is for **non-commercial purposes** from **Novem
 - 🐦 **X**: https://x.com/Dechonetwork
 
 MIT licensed. Issues and PRs welcome.
+
+## Signed-in tools
+
+These tools appear only when the server has your DechoNet login: set `DECHONET_SESSION_COOKIE` to your own current cookie as it is sent, e.g. `dn_acct=…` (or `dn_acct=…; dn_ws=…` when you work in an agency workspace). Treat it like a password. It is sent only to the exact private endpoints below, never to the public diagnostics, and a public API key does not stand in for it. Without it the server lists the 25 public tools.
+
+**Business plan — active checks on domains you own** ([plans](https://dechonet.com/pro))
+
+| Tool | Description |
+|------|-------------|
+| `asm_nuclei_start` | Start a limited active check (Nuclei) on a verified asset from your attack-surface report. Needs current DNS TXT ownership, the exact root URL from that report and `confirm: "asm-nuclei-v1"` |
+| `asm_nuclei_status` | Progress, coverage and sanitized findings. Partial or failed is not a clean result; technology detection is not proof of a vulnerability. Never starts requests |
+| `asm_nuclei_cancel` | Stop new requests and end the job. Requests already sent cannot be recalled |
+
+**Investigator case spaces** — `case_kit_search` and `case_kit_observe` work only with a case owner session or an existing case access cookie. Search reads stored, case-scoped page fingerprints; observe re-opens a case target under the same render rules and daily cap. Similar screens and kit candidates never confirm a person or a phishing verdict.

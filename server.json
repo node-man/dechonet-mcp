@@ -6,12 +6,12 @@
     "url": "https://github.com/node-man/dechonet-mcp",
     "source": "github"
   },
-  "version": "1.5.0",
+  "version": "1.5.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dechonet-mcp",
-      "version": "1.5.0",
+      "version": "1.5.1",
       "transport": {
         "type": "stdio"
       },
@@ -36,6 +36,13 @@
           "format": "string",
           "isSecret": true,
           "name": "DECHONET_API_KEY"
+        },
+        {
+          "description": "Optional: your own DechoNet login cookie (dn_acct), only for the signed-in tools (Business-plan Nuclei checks, investigator cases)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true,
+          "name": "DECHONET_SESSION_COOKIE"
         }
       ]
     }
