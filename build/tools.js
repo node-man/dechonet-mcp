@@ -13,7 +13,11 @@ async function callApi(path) {
     if (!json.ok) {
         throw Object.assign(new Error(json.error?.message || `API error: ${res.status}`), { reason: json.error?.reason });
     }
-    return json.data;
+    // SYNC with the remote transport: cached/updatedAt ride along, hidden from JSON, for the observation line.
+    const data = json.data;
+    if (data && typeof data === 'object')
+        Object.defineProperty(data, '__meta', { value: { cached: !!json.cached, updatedAt: json.updatedAt ?? null }, enumerable: false });
+    return data;
 }
 async function postApi(path, payload) {
     const res = await fetch(`${BASE_URL}${path}`, {
@@ -58,6 +62,8 @@ const interpOutputShape = {
     grade: z.string().optional().describe('Letter grade (A+ to F) when the tool grades the target'),
     score: z.number().optional().describe('0-100 score when the tool scores the target'),
     reportUrl: z.string().describe('Human-facing interactive report for this exact lookup on dechonet.com'),
+    observation: z.object({ state: z.enum(['complete', 'partial', 'unknown']), observedAt: z.string().nullable(), cached: z.boolean(), ageMinutes: z.number().nullable() }).optional()
+        .describe('How much was actually observed and when. A partial observation means some checks did not answer: missing parts are not verified, never clean.'),
 };
 const subnetOutputShape = {
     network: z.string().describe('Network address'),
@@ -235,6 +241,7 @@ function formatPqc(data, url) {
 function structuredFromInterp(data, url) {
     const interp = data?.interpretation;
     const sc = { status: String(interp?.status ?? 'unknown'), reportUrl: url };
+    sc.observation = observationOf(data);
     if (interp?.insight?.summary)
         sc.summary = String(interp.insight.summary);
     if (interp?.kpis?.length)
@@ -250,6 +257,21 @@ function structuredFromInterp(data, url) {
     if (typeof score === 'number')
         sc.score = score;
     return sc;
+}
+// Observation state and freshness (2026-10-15): a verdict says what was found; this says how much of the target
+// was actually seen and when. The API envelope's cached/updatedAt travel on the data as a hidden __meta.
+function observationOf(data) {
+    const interp = data?.interpretation;
+    const meta = data?.__meta ?? {};
+    const observedAt = typeof meta.updatedAt === 'string' ? meta.updatedAt : null;
+    const age = observedAt ? Math.max(0, Math.round((Date.now() - Date.parse(observedAt)) / 60000)) : null;
+    return { state: !interp ? 'unknown' : interp.partial ? 'partial' : 'complete', observedAt, cached: !!meta.cached, ageMinutes: Number.isFinite(age) ? age : null };
+}
+function observationLine(o) {
+    const state = o.state === 'partial' ? 'partial — some checks did not answer; treat what is missing as not verified, never as clean'
+        : o.state === 'complete' ? 'complete' : 'unknown';
+    const when = o.observedAt ? `observed ${o.observedAt}${o.cached ? ` (cached result, ${o.ageMinutes != null && o.ageMinutes >= 120 ? `${Math.round(o.ageMinutes / 60)}h` : `${o.ageMinutes ?? 0}m`} old)` : ' (fresh)'}` : 'observation time not reported';
+    return `Observation: ${state} · ${when}`;
 }
 function formatResult(data, url) {
     const interp = data.interpretation;
@@ -293,6 +315,8 @@ function formatResult(data, url) {
             lines.push(`SSL Grade: ${interp.sslGrade} (${interp.sslScore}/100)`);
         }
     }
+    lines.push(observationLine(observationOf(data)));
+    lines.push('');
     lines.push('---');
     lines.push('Raw data (JSON):');
     const rawJson = JSON.stringify(data.raw, null, 2);
@@ -678,6 +702,8 @@ function formatPhishing(data, url) {
             const f = PHISHING_SIGNAL[s.key];
             lines.push(`  - (${s.severity}) ${f ? f(s.detail) : s.key}`);
         }
+        if (l.officialSite?.url)
+            lines.push(`  real site of the imitated brand (DechoNet brand list; tell the user to type it or use the official app, not the link): ${l.officialSite.url}`);
     }
     if (data?.lure?.length)
         lines.push('', `Message wording matches common smishing lures: ${data.lure.join(', ')} (a hint, not proof).`);
