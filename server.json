@@ -6,12 +6,12 @@
     "url": "https://github.com/node-man/dechonet-mcp",
     "source": "github"
   },
-  "version": "1.5.10",
+  "version": "1.5.11",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dechonet-mcp",
-      "version": "1.5.10",
+      "version": "1.5.11",
       "transport": {
         "type": "stdio"
       },

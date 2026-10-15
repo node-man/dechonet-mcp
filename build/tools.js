@@ -793,6 +793,30 @@ function formatExpect(d) {
         },
     };
 }
+// Check before an action (2026-10-16): SYNC with PRECHECK_OUTPUT_SCHEMA / formatPrecheck in the remote registry.
+const precheckOutputShape = {
+    host: z.string().describe('Host the address ended on (after redirects)'),
+    verdict: z.enum(['danger', 'suspicious', 'unreachable', 'official', 'no_signals']).describe("danger: evidence the page impersonates or attacks; suspicious: warning signs; unreachable: could not be read; official: the brand's own domain; no_signals: none of the checks found a warning sign — not a statement that the page is safe (see unchecked)"),
+    signals: z.array(z.object({ key: z.string(), severity: z.enum(['high', 'medium', 'info']), detail: z.string().optional(), from: z.string().optional() })),
+    unchecked: z.array(z.string()).describe("What was not looked at: 'page_structure', 'rendering', 'hidden_instructions'"),
+    ageDays: z.number().nullable().optional().describe('Days since the domain was registered, when known'),
+    paymentProvider: z.string().nullable().optional().describe('Payment provider recognised for the page or its card frame'),
+};
+function formatPrecheck(d) {
+    const signals = Array.isArray(d?.signals) ? d.signals : [];
+    const lines = [
+        `=== Check before ${d?.action ?? 'action'}: ${d?.host ?? ''} ===`,
+        `Verdict: ${String(d?.verdict ?? 'unknown').toUpperCase()}${d?.paymentProvider ? ` · payment provider: ${d.paymentProvider}` : ''}${typeof d?.ageDays === 'number' ? ` · domain age ${d.ageDays} days` : ''}`,
+        ...signals.map((x) => `  [${x.severity}] ${x.key}${x.detail ? ` — ${x.detail}` : ''}${x.from && x.from !== 'link' ? ` (${x.from})` : ''}`),
+        `Not checked: ${(d?.unchecked ?? []).join(', ') || 'none'}`,
+    ];
+    if (d?.receipt?.url)
+        lines.push(`Signed observation record: ${d.receipt.url}`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: { host: String(d?.host ?? ''), verdict: String(d?.verdict ?? ''), signals, unchecked: d?.unchecked ?? [], ageDays: d?.ageDays ?? null, paymentProvider: d?.paymentProvider ?? null, ...(d?.receipt ? { receipts: [d.receipt] } : {}) },
+    };
+}
 export const tools = [
     {
         name: 'dns_lookup',
@@ -1415,6 +1439,56 @@ export const tools = [
                 return errorResult('Provide a stored set id, or a domain with a list of checks.');
             try {
                 return formatExpect(await postApi('/api/expect', id ? { id } : { domain, expect, store: false }));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'check_before_action',
+        title: 'Check a Page Before Logging In or Paying',
+        outputSchema: precheckOutputShape,
+        annotations: annotate('Check a Page Before Logging In or Paying'),
+        description: 'Check the page an agent is about to log in, pay, download from or submit to: whether the address impersonates a brand, how new the domain is, whether DechoNet or a licensed feed has already flagged it, and — opened from Seoul or Tokyo as a phone when the address alone cannot settle it — what the page turns into. ' +
+            "For a payment, the caller can report the page structure as host names only (where forms submit, which origins frames come from, whether the card fields sit on the page itself or in a frame and that frame's origin): card fields outside a known payment provider (Stripe, PayPal, Braintree, Adyen, Square, Checkout.com, Toss Payments, KG Inicis, NHN KCP, NICE Payments, Naver Pay, Korean card issuers and banks) are reported as suspicious — a fake card window inside a real shop shows up only this way. Paths, queries, field values and page text are not accepted, and the structure is not stored. " +
+            "Verdicts: danger, suspicious, unreachable, official, no_signals. no_signals means none of the checks found a warning sign and is not a statement that the page is safe; 'unchecked' lists what was not looked at. Rate-limited. Returns signals with their source and a signed observation record (host and verdict only).",
+        schema: {
+            url: z.string().describe('Address of the page (https://…)'),
+            action: z.enum(['login', 'pay', 'download', 'submit', 'follow']).describe('What is about to happen on the page'),
+            expectedBrand: z.string().optional().describe("Brand the page is believed to belong to (e.g. 'PayPal', 'Shinhan Card'); a domain without that name is noted"),
+            page: z.object({
+                formTargets: z.array(z.string()).optional().describe('Hosts the forms on the page submit to'),
+                frameOrigins: z.array(z.string()).optional().describe('Origins of frames on the page'),
+                cardFieldsOn: z.enum(['top', 'frame', 'none']).optional().describe("Where the card number field is: on the page itself ('top'), inside a frame, or not present"),
+                cardFrameOrigin: z.string().optional().describe('Origin of the frame holding the card fields, when in a frame'),
+            }).optional().describe('Optional page structure, host names only'),
+        },
+        handler: async ({ url, action, expectedBrand, page }) => {
+            try {
+                return formatPrecheck(await postApi('/api/precheck', { url, action, ...(expectedBrand ? { expectedBrand } : {}), ...(page ? { page } : {}) }));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'report_page',
+        title: 'Report a Page',
+        outputSchema: { received: z.boolean(), host: z.string(), kind: z.string() },
+        annotations: { title: 'Report a Page', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        description: 'Report a page to DechoNet: phishing or brand impersonation, a fake payment window (card fields where a payment provider should be), hidden instructions aimed at AI agents, a malicious download, or a DechoNet verdict that looks wrong (false_positive) or a danger it missed (missed). ' +
+            'Only the host and the kind are kept, for 90 days, with an anonymous reporter hash used to count independent reports — no path, query, page text or free text. ' +
+            'A report changes no verdict by itself: DechoNet opens the page itself and only what it observes counts; pages reported by several independent sources are looked at first. Not read-only (it records the report); rate-limited.',
+        schema: {
+            url: z.string().describe('Address of the page (only its host is kept)'),
+            kind: z.enum(['phishing', 'fake_payment', 'hidden_instructions', 'malicious_download', 'false_positive', 'missed']).describe('What is wrong with the page'),
+        },
+        handler: async ({ url, kind }) => {
+            try {
+                const d = await postApi('/api/page-report', { url, kind });
+                return { content: [{ type: 'text', text: `Report received for ${d.host} (${d.kind}). ${d.note}` }], structuredContent: { received: !!d.received, host: String(d.host), kind: String(d.kind) } };
             }
             catch (e) {
                 return errorResult(e.message);
