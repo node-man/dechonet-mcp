@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { tools } from './tools.js';
+import { tools, receiptScope, receiptsShape, withReceipts } from './tools.js';
 const server = new McpServer({
     // SYNC with SERVER_INFO in the monorepo remote handler (lib/mcp/handler.ts).
     name: 'dechonet',
     title: 'DechoNet',
-    version: '1.5.7',
+    version: '1.5.8',
     websiteUrl: 'https://dechonet.com/mcp',
     icons: [{ src: 'https://dechonet.com/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
 }, {
@@ -30,9 +30,11 @@ for (const tool of listed) {
         title: tool.title,
         description: tool.description,
         inputSchema: tool.schema,
-        outputSchema: tool.outputSchema,
+        outputSchema: { ...tool.outputSchema, receipts: receiptsShape },
         annotations: tool.annotations,
-    }, tool.handler);
+    }, 
+    // Each call collects the signed observation receipts of the lookups it made (tools.ts callApi).
+    (args) => { const receipts = []; return receiptScope.run(receipts, async () => withReceipts(await tool.handler(args), receipts)); });
 }
 async function main() {
     const transport = new StdioServerTransport();

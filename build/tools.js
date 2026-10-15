@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 const BASE_URL = process.env.DECHONET_URL || 'https://dechonet.com';
 const LOCALE = process.env.DECHONET_LOCALE || 'en';
@@ -5,9 +6,21 @@ const LOCALE = process.env.DECHONET_LOCALE || 'en';
 const accountCookie = (path) => /^\/api\/account\/asm\/nuclei-(start|status|cancel)(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? { Cookie: process.env.DECHONET_SESSION_COOKIE } : {};
 const API_KEY = (process.env.DECHONET_API_KEY ?? '').trim();
 const caseCookie = (path) => /^\/api\/(?:pilot\/kit-(?:search|observe)|account\/asm\/nuclei-(?:start|status|cancel))(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? { Cookie: process.env.DECHONET_SESSION_COOKIE } : {};
+export const receiptScope = new AsyncLocalStorage();
+export const receiptsShape = z.array(z.object({ tool: z.string(), id: z.string(), url: z.string() })).optional()
+    .describe('Signed observation receipts behind this result, one per lookup: when, from where and under which rules version DechoNet observed it. Each url shows the record and checks its Ed25519 signature.');
+export function withReceipts(result, receipts) {
+    if (!receipts.length || result?.isError)
+        return result;
+    const line = receipts.length === 1
+        ? `Signed observation receipt: ${receipts[0].url}`
+        : `Signed observation receipts:\n${receipts.map((r) => `  ${r.tool}: ${r.url}`).join('\n')}`;
+    const content = result.content?.length ? [...result.content.slice(0, -1), { ...result.content[result.content.length - 1], text: `${result.content[result.content.length - 1].text}\n${line}` }] : [{ type: 'text', text: line }];
+    return { ...result, content, ...(result.structuredContent ? { structuredContent: { ...result.structuredContent, receipts } } : {}) };
+}
 async function callApi(path) {
     const res = await fetch(`${BASE_URL}${path}`, {
-        headers: { ...caseCookie(path), 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
+        headers: { ...caseCookie(path), 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, 'X-Decho-Receipt': '1', ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
     });
     const json = await res.json();
     if (!json.ok) {
@@ -17,6 +30,9 @@ async function callApi(path) {
     const data = json.data;
     if (data && typeof data === 'object')
         Object.defineProperty(data, '__meta', { value: { cached: !!json.cached, updatedAt: json.updatedAt ?? null }, enumerable: false });
+    const r = json.receipt;
+    if (r?.id && r?.url)
+        receiptScope.getStore()?.push({ tool: String(r.tool ?? ''), id: String(r.id), url: String(r.url) });
     return data;
 }
 async function postApi(path, payload) {

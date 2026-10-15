@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 
 const BASE_URL = process.env.DECHONET_URL || 'https://dechonet.com';
@@ -14,9 +15,24 @@ const accountCookie=(path:string):Record<string,string> => /^\/api\/account\/asm
 const API_KEY = (process.env.DECHONET_API_KEY ?? '').trim();
 const caseCookie = (path:string): Record<string,string> => /^\/api\/(?:pilot\/kit-(?:search|observe)|account\/asm\/nuclei-(?:start|status|cancel))(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? {Cookie:process.env.DECHONET_SESSION_COOKIE} : {};
 
+// Observation receipts (2026-10-15): the tool APIs sign each public result and return { tool, id, url }.
+// Collected per tool call (index.ts runs each handler inside receiptScope). SYNC with the remote registry.
+export interface ReceiptRef { tool: string; id: string; url: string }
+export const receiptScope = new AsyncLocalStorage<ReceiptRef[]>();
+export const receiptsShape = z.array(z.object({ tool: z.string(), id: z.string(), url: z.string() })).optional()
+  .describe('Signed observation receipts behind this result, one per lookup: when, from where and under which rules version DechoNet observed it. Each url shows the record and checks its Ed25519 signature.');
+export function withReceipts(result: any, receipts: ReceiptRef[]): any {
+  if (!receipts.length || result?.isError) return result;
+  const line = receipts.length === 1
+    ? `Signed observation receipt: ${receipts[0].url}`
+    : `Signed observation receipts:\n${receipts.map((r) => `  ${r.tool}: ${r.url}`).join('\n')}`;
+  const content = result.content?.length ? [...result.content.slice(0, -1), { ...result.content[result.content.length - 1], text: `${result.content[result.content.length - 1].text}\n${line}` }] : [{ type: 'text', text: line }];
+  return { ...result, content, ...(result.structuredContent ? { structuredContent: { ...result.structuredContent, receipts } } : {}) };
+}
+
 async function callApi(path: string): Promise<any> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { ...caseCookie(path), 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
+    headers: { ...caseCookie(path), 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, 'X-Decho-Receipt': '1', ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
   });
   const json: ApiResponse = await res.json();
   if (!json.ok) {
@@ -25,6 +41,8 @@ async function callApi(path: string): Promise<any> {
   // SYNC with the remote transport: cached/updatedAt ride along, hidden from JSON, for the observation line.
   const data: any = json.data;
   if (data && typeof data === 'object') Object.defineProperty(data, '__meta', { value: { cached: !!(json as any).cached, updatedAt: (json as any).updatedAt ?? null }, enumerable: false });
+  const r = (json as any).receipt;
+  if (r?.id && r?.url) receiptScope.getStore()?.push({ tool: String(r.tool ?? ''), id: String(r.id), url: String(r.url) });
   return data;
 }
 

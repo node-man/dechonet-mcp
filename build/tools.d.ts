@@ -1,4 +1,25 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
+export interface ReceiptRef {
+    tool: string;
+    id: string;
+    url: string;
+}
+export declare const receiptScope: AsyncLocalStorage<ReceiptRef[]>;
+export declare const receiptsShape: z.ZodOptional<z.ZodArray<z.ZodObject<{
+    tool: z.ZodString;
+    id: z.ZodString;
+    url: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    tool: string;
+    id: string;
+    url: string;
+}, {
+    tool: string;
+    id: string;
+    url: string;
+}>, "many">>;
+export declare function withReceipts(result: any, receipts: ReceiptRef[]): any;
 export interface ToolAnnotations {
     title: string;
     readOnlyHint: boolean;

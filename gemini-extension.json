@@ -1,6 +1,6 @@
 {
   "name": "dechonet",
-  "version": "1.5.7",
+  "version": "1.5.8",
   "description": "Check domains, links and IP addresses from public data: security score, phishing signals, DNS, TLS, email authentication and change history.",
   "mcpServers": {
     "dechonet": {
