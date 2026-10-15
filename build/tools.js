@@ -38,7 +38,7 @@ async function callApi(path) {
 async function postApi(path, payload) {
     const res = await fetch(`${BASE_URL}${path}`, {
         method: 'POST',
-        headers: { ...caseCookie(path), 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE },
+        headers: { ...caseCookie(path), 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
         body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -745,6 +745,53 @@ function formatPhishing(data, url) {
         },
     };
 }
+// Outside expectations (2026-10-16): SYNC with EXPECT_CHECK_ITEM / EXPECT_OUTPUT_SCHEMA / formatExpect in the remote registry.
+const expectCheck = z.object({
+    check: z.enum(['issue_absent', 'grade_at_least', 'header_present', 'https_ok', 'dns_record', 'dmarc_policy', 'cert_days_left']),
+    tool: z.enum(['dns', 'ssl', 'http', 'email']).optional(),
+    key: z.string().optional().describe('Issue key for issue_absent (as the tools report them)'),
+    name: z.string().optional().describe('HTTP header name for header_present'),
+    contains: z.string().optional().describe('Substring the header value must contain (header_present)'),
+    type: z.enum(['A', 'AAAA', 'CNAME', 'MX', 'NS', 'TXT', 'CAA']).optional(),
+    op: z.enum(['present', 'absent', 'contains']).optional(),
+    value: z.union([z.string(), z.number(), z.array(z.string())]).optional().describe('Grade, record text, DMARC policies or days, depending on the check'),
+}).describe("One check. Kinds: issue_absent {tool: dns|ssl|http|email, key: issue key such as 'http_no_csp'} · grade_at_least {tool: http|ssl, value: 'A+'..'F'} · header_present {name, contains?} · https_ok {} (final status 2xx/3xx) · dns_record {type: A|AAAA|CNAME|MX|NS|TXT|CAA, op: present|absent|contains, value?} · dmarc_policy {value: ['quarantine','reject']} · cert_days_left {value: days}.");
+const expectOutputShape = {
+    id: z.string().optional().describe('Expectation set id (stored sets)'),
+    url: z.string().optional().describe('Status page of the set: last results and recent checks'),
+    domain: z.string(),
+    state: z.string().nullable().describe("'pass' (every check holds) | 'fail' (at least one does not) | 'unknown' (some could not be read — not a pass)"),
+    checkedAt: z.string().nullable().optional(),
+    results: z.array(z.object({ check: z.string(), outcome: z.enum(['pass', 'fail', 'unknown']), observed: z.string(), tool: z.string().optional() })),
+    stored: z.boolean().describe('Whether DechoNet keeps re-checking this set daily'),
+    owner: z.string().optional().describe("'account' (alerts by the API key account's daily mail) or 'anonymous' (no alerts)"),
+    expiresAt: z.string().nullable().optional().describe('Anonymous sets: removed after this unless checked again'),
+};
+function formatExpect(d) {
+    const results = Array.isArray(d?.results) ? d.results : [];
+    const n = (o) => results.filter((r) => r.outcome === o).length;
+    const lines = [
+        `=== Outside expectations: ${d?.domain ?? ''} ===`,
+        `State: ${String(d?.state ?? 'not checked').toUpperCase()} — ${n('pass')} hold, ${n('fail')} do not hold, ${n('unknown')} could not be checked (not a pass)`,
+        ...results.map((r) => `[${String(r.outcome).toUpperCase()}] ${r.check} — ${r.observed}`),
+    ];
+    if (d?.stored && d?.id)
+        lines.push('', `Set ${d.id}: re-checked daily by DechoNet; ${d.owner === 'account' ? "a set that stops holding is reported in the API key account's daily mail" : `anonymous (no alerts), kept until ${d.expiresAt ?? '30 days after the last check'}`}.`, `Status page: ${d.url}`);
+    else
+        lines.push('', 'Checked once; nothing stored.');
+    const receipts = Array.isArray(d?.receipts) ? d.receipts : [];
+    if (receipts.length)
+        lines.push(`Signed observation receipts:\n${receipts.map((r) => `  ${r.tool}: ${r.url}`).join('\n')}`);
+    return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: {
+            ...(d?.id ? { id: d.id, url: d.url } : {}), domain: String(d?.domain ?? ''), state: d?.state ?? null, checkedAt: d?.checkedAt ?? null,
+            results: results.map((r) => ({ check: String(r.check), outcome: String(r.outcome), observed: String(r.observed), tool: String(r.tool ?? '') })),
+            stored: !!d?.stored, ...(d?.owner ? { owner: d.owner } : {}), ...(d?.expiresAt !== undefined ? { expiresAt: d.expiresAt } : {}),
+            ...(receipts.length ? { receipts } : {}),
+        },
+    };
+}
 export const tools = [
     {
         name: 'dns_lookup',
@@ -1324,6 +1371,53 @@ export const tools = [
                 }
             }
             return formatWatchDomain(clean, results, 'https://dechonet.com');
+        },
+    },
+    {
+        name: 'set_expectations',
+        title: 'Set Outside Expectations (daily re-check)',
+        outputSchema: expectOutputShape,
+        annotations: { title: 'Set Outside Expectations (daily re-check)', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        description: 'Record what a domain should show from outside and check it now — HSTS or another header present, DMARC enforcing, an issue key no longer reported, an HTTP or TLS grade at or above a level, a certificate with enough days left, a DNS record present, absent or containing a value, HTTPS answering. ' +
+            "DechoNet reads the domain fresh (not from cache) with its public dns / ssl / http / email tools, from its own servers and the Seoul observation point, and then re-checks the set every day. Each result is pass, fail or unknown; unknown (a tool or part of it did not answer) is never a pass. " +
+            "Without an API key the set is anonymous: no alerts, kept 30 days after its last check, reachable by id and status page. With an API key (Authorization: Bearer dn_…) the set belongs to that key's account, and a set that held and stops holding is reported in the account's daily mail. " +
+            'Not read-only (it stores the set); public checks only, so any domain is accepted. Typical use: after changing DNS, TLS, headers or mail settings, to state the intended result and be told if it is ever reverted. Returns the set id, status page, per-check results and signed observation receipts.',
+        schema: {
+            domain: z.string().describe("Domain the checks are about (e.g. 'example.com'); scheme and path are stripped"),
+            expect: z.array(expectCheck).min(1).max(20).describe('Checks, 1-20'),
+            label: z.string().optional().describe('Optional short name for the set (shown on its page and in the mail)'),
+        },
+        handler: async ({ domain, expect, label }) => {
+            try {
+                return formatExpect(await postApi('/api/expect', { domain, expect, ...(label ? { label } : {}) }));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'verify_expectations',
+        title: 'Verify Outside Expectations Now',
+        outputSchema: expectOutputShape,
+        annotations: { title: 'Verify Outside Expectations Now', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        description: 'Check expectations from outside now, with fresh reads: either a stored set by id (from set_expectations — its state is updated and an anonymous set is kept another 30 days), or a domain plus a list of checks once, storing nothing. ' +
+            'Same checks and outcomes as set_expectations (pass / fail / unknown, unknown is never a pass), each tool read once with a signed observation receipt. ' +
+            'Typical use: right after a change, to see whether it is visible from outside yet — DNS and CDN changes can take minutes to hours to show. Rate-limited (a few checks per minute).',
+        schema: {
+            id: z.string().optional().describe("Stored set id ('ex_…') to re-check"),
+            domain: z.string().optional().describe('Domain to check once (with expect), when there is no stored set'),
+            expect: z.array(expectCheck).min(1).max(20).optional().describe('Checks for a one-off verify, 1-20'),
+        },
+        handler: async ({ id, domain, expect }) => {
+            if (!id && !(domain && Array.isArray(expect) && expect.length))
+                return errorResult('Provide a stored set id, or a domain with a list of checks.');
+            try {
+                return formatExpect(await postApi('/api/expect', id ? { id } : { domain, expect, store: false }));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
         },
     },
     {

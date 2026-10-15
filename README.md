@@ -6,7 +6,7 @@
 
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-**25 tools. No API key needed for non-commercial use.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — **infrastructure history and pivots** (past nameservers/IPs/issuers, and other domains seen on the same rare infrastructure), and a daily **watch** you can set from the agent.
+**27 tools. No API key needed for non-commercial use.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **domain change history** — what changed since the last check — **infrastructure history and pivots** (past nameservers/IPs/issuers, and other domains seen on the same rare infrastructure), and a daily **watch** you can set from the agent.
 
 Every result comes back interpreted, not just as raw JSON: a status, the key numbers, each issue with severity and confidence, and the concrete action to take. That is what an agent needs to tell a human what to do next.
 
@@ -90,7 +90,9 @@ npm install -g dechonet-mcp
 | `infrastructure_pivot` | Other domains DechoNet saw with the same nameserver, IP, MX, issuer or registrar. **Needs a free API key** (`DECHONET_API_KEY`); shared infrastructure returns a count only |
 | `domain_changes` | What changed since the last check — status, grade, issuer, DNS, issues. Works from lookup history even without a watch |
 | `pqc_readiness` | Post-quantum TLS readiness: hybrid X25519MLKEM768 key exchange, whether the origin server or a CDN edge provides it, certificate signature algorithms. External indicator, not a full PQC audit |
-| `watch_domain` | Register a domain for daily re-checks (SSL, DNS, HTTP, RDAP) so `domain_changes` accumulates a timeline. The only tool that writes; idempotent |
+| `watch_domain` | Register a domain for daily re-checks (SSL, DNS, HTTP, RDAP) so `domain_changes` accumulates a timeline. Writes a watch; idempotent |
+| `set_expectations` | State what a domain should show from outside (a header present, DMARC enforcing, an issue gone, a grade, certificate days, DNS records, HTTPS answering), check it now with fresh reads and every day after. Each result comes with a signed observation receipt; with an API key, a set that stops holding is reported in your account's daily mail |
+| `verify_expectations` | Check a stored set (by id) or a one-off list from outside now — after a change, to see whether it is visible yet |
 | `ip_info` | Public IP, ISP, ASN, proxy detection |
 | `email_header_analysis` | Email delivery route tracing + auth results |
 | `subnet_calc` | CIDR subnet calculator (offline) |
@@ -173,7 +175,7 @@ MIT licensed. Issues and PRs welcome.
 
 ## Signed-in tools
 
-These tools appear only when the server has your DechoNet login: set `DECHONET_SESSION_COOKIE` to your own current cookie as it is sent, e.g. `dn_acct=…` (or `dn_acct=…; dn_ws=…` when you work in an agency workspace). Treat it like a password. It is sent only to the exact private endpoints below, never to the public diagnostics, and a public API key does not stand in for it. Without it the server lists the 25 public tools.
+These tools appear only when the server has your DechoNet login: set `DECHONET_SESSION_COOKIE` to your own current cookie as it is sent, e.g. `dn_acct=…` (or `dn_acct=…; dn_ws=…` when you work in an agency workspace). Treat it like a password. It is sent only to the exact private endpoints below, never to the public diagnostics, and a public API key does not stand in for it. Without it the server lists the 27 public tools.
 
 **Business plan — active checks on domains you own** ([plans](https://dechonet.com/pro))
 
