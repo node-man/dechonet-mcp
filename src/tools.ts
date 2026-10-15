@@ -825,7 +825,7 @@ const precheckOutputShape = {
   host: z.string().describe('Host the address ended on (after redirects)'),
   verdict: z.enum(['danger', 'suspicious', 'unreachable', 'official', 'no_signals']).describe("danger: evidence the page impersonates or attacks; suspicious: warning signs; unreachable: could not be read; official: the brand's own domain; no_signals: none of the checks found a warning sign — not a statement that the page is safe (see unchecked)"),
   signals: z.array(z.object({ key: z.string(), severity: z.enum(['high', 'medium', 'info']), detail: z.string().optional(), from: z.string().optional() })),
-  unchecked: z.array(z.string()).describe("What was not looked at: 'page_structure', 'rendering', 'hidden_instructions'"),
+  unchecked: z.array(z.string()).describe("What was not looked at: 'page_structure' (no structure sent for a login or payment), 'rendering' (the page was not opened in a browser), 'hidden_instructions' (so hidden text aimed at AI agents was not read)"),
   ageDays: z.number().nullable().optional().describe('Days since the domain was registered, when known'),
   paymentProvider: z.string().nullable().optional().describe('Payment provider recognised for the page or its card frame'),
 };
@@ -1406,7 +1406,7 @@ export const tools: ToolDef[] = [
     outputSchema: precheckOutputShape,
     annotations: annotate('Check a Page Before Logging In or Paying'),
     description:
-      'Check the page an agent is about to log in, pay, download from or submit to: whether the address impersonates a brand, how new the domain is, whether DechoNet or a licensed feed has already flagged it, and — opened from Seoul or Tokyo as a phone when the address alone cannot settle it — what the page turns into. ' +
+      'Check the page an agent is about to log in, pay, download from or submit to: whether the address impersonates a brand, how new the domain is, whether DechoNet or a licensed feed has already flagged it, and — opened from Seoul (and Tokyo for Japan-targeted pages) as a phone — what the page turns into, including text it hides from people but an AI agent would read (instructions to ignore its rules, hand over secrets or keep the user out of it raise the answer to suspicious). ' +
       "For a payment, the caller can report the page structure as host names only (where forms submit, which origins frames come from, whether the card fields sit on the page itself or in a frame and that frame's origin): card fields outside a known payment provider (Stripe, PayPal, Braintree, Adyen, Square, Checkout.com, Toss Payments, KG Inicis, NHN KCP, NICE Payments, Naver Pay, Korean card issuers and banks) are reported as suspicious — a fake card window inside a real shop shows up only this way. Paths, queries, field values and page text are not accepted, and the structure is not stored. " +
       "Verdicts: danger, suspicious, unreachable, official, no_signals. no_signals means none of the checks found a warning sign and is not a statement that the page is safe; 'unchecked' lists what was not looked at. Rate-limited. Returns signals with their source and a signed observation record (host and verdict only).",
     schema: {
