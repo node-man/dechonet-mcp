@@ -603,7 +603,7 @@ const EXPOSURE_ISSUE = {
     exposure_staging: 'Staging/dev servers are public — restrict access or take them down.',
     exposure_default_page: 'Default web-server pages are visible — likely unused servers; clean them up.',
     exposure_login: 'Login pages exist — fine if expected; confirm 2FA and rate limiting.',
-    exposure_http_only: 'Some hosts answer over plain HTTP only (Chrome 154+, October 2026, shows visitors a warning screen first).',
+    exposure_http_only: 'Some hosts answer over plain HTTP only (since Chrome 154, September 2026, new visitors see a warning screen first).',
     exposure_cert_error: 'Some hosts fail HTTPS with a certificate error.',
 };
 const EXPOSURE_ORDER = ['listing', 'devtool', 'api_docs', 'admin', 'remote', 'staging', 'default_page', 'login', 'api', 'mail', 'web', 'redirect', 'error', 'no_web', 'unresolved', 'skipped'];

@@ -23,13 +23,14 @@ https://dechonet.com/mcp
 | Client | How to connect |
 |---|---|
 | Claude Code | `claude mcp add --transport http dechonet https://dechonet.com/mcp` |
-| ChatGPT | Settings → Apps (Connectors) → Advanced → Developer mode → Create, paste the URL, authentication "None" (plan availability and menu names vary while in beta) |
+| Claude app / Desktop | Customize → Connectors → + Add → Add custom connector, paste the URL (Free plan: one custom connector; Team/Enterprise: an owner adds it first) |
+| ChatGPT | [chatgpt.com/plugins](https://chatgpt.com/plugins) → + → Add custom MCP server → URL under Connection, no authentication → Create as a plugin (work/school accounts need an admin to allow custom MCP servers) |
 | Cursor | `~/.cursor/mcp.json`: `{"mcpServers":{"dechonet":{"url":"https://dechonet.com/mcp"}}}` |
-| VS Code (Copilot agent mode) | `.vscode/mcp.json`: `{"servers":{"dechonet":{"type":"http","url":"https://dechonet.com/mcp"}}}` |
+| VS Code (Copilot agent mode) | `.mcp.json` at the workspace root: `{"mcpServers":{"dechonet":{"type":"http","url":"https://dechonet.com/mcp"}}}` (in `.vscode/mcp.json` the root key is `servers`) |
 | Gemini CLI | `gemini mcp add --transport http dechonet https://dechonet.com/mcp` (in `settings.json` use `httpUrl`, not `url`) |
 | Codex | `codex mcp add dechonet --url https://dechonet.com/mcp` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json`: `{"mcpServers":{"dechonet":{"serverUrl":"https://dechonet.com/mcp"}}}` |
-| Claude Desktop | stdio via npm — see Quick Start below |
+| Any stdio-only client | npm package — see Quick Start below |
 
 Step-by-step for each client: [dechonet.com/mcp](https://dechonet.com/mcp). The remote endpoint also serves 3 curated prompts (`audit_domain`, `monitor_setup`, `investigate_changes`) and 2 reference resources.
 
@@ -52,7 +53,7 @@ Config file location:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
-Restart Claude Desktop. You'll see the DechoNet tools icon in the input area.
+Restart Claude Desktop; DechoNet shows up in the chat input's tools menu. (Claude Desktop can also skip the install and add `https://dechonet.com/mcp` as a custom connector — see the table above.)
 
 ## Install
 
@@ -76,7 +77,7 @@ npm install -g dechonet-mcp
 | `http_security` | HTTP redirect trace + 10 security headers audit, A-F grade |
 | `email_auth` | SPF, DMARC, DKIM, BIMI, MTA-STS, DANE + blacklist check |
 | `port_scan` | Open TCP ports with service identification |
-| `dns_propagation` | DNS propagation across 8+ global resolvers |
+| `dns_propagation` | DNS propagation across 6 public resolvers |
 | `reverse_dns` | PTR record + FCrDNS verification |
 | `asn_lookup` | ASN/BGP network identification + abuse contact |
 | `whois_lookup` | RDAP/WHOIS domain registration data |
