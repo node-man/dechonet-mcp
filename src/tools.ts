@@ -790,7 +790,8 @@ const expectOutputShape = {
   domain: z.string(),
   state: z.string().nullable().describe("'pass' (every check holds) | 'fail' (at least one does not) | 'unknown' (some could not be read — not a pass)"),
   checkedAt: z.string().nullable().optional(),
-  results: z.array(z.object({ check: z.string(), outcome: z.enum(['pass', 'fail', 'unknown']), observed: z.string(), tool: z.string().optional() })),
+  results: z.array(z.object({ check: z.string(), outcome: z.enum(['pass', 'fail', 'unknown']), observed: z.string(), tool: z.string().optional(),
+    fix: z.object({ platform: z.string().nullable(), where: z.string(), snippet: z.string().optional(), note: z.string().optional(), doc: z.string().optional() }).optional().describe('Where to fix a check that does not hold, for the platform the site runs on') })),
   stored: z.boolean().describe('Whether DechoNet keeps re-checking this set daily'),
   owner: z.string().optional().describe("'account' (alerts by the API key account's daily mail) or 'anonymous' (no alerts)"),
   expiresAt: z.string().nullable().optional().describe('Anonymous sets: removed after this unless checked again'),
@@ -801,7 +802,7 @@ function formatExpect(d: any) {
   const lines = [
     `=== Outside expectations: ${d?.domain ?? ''} ===`,
     `State: ${String(d?.state ?? 'not checked').toUpperCase()} — ${n('pass')} hold, ${n('fail')} do not hold, ${n('unknown')} could not be checked (not a pass)`,
-    ...results.map((r) => `[${String(r.outcome).toUpperCase()}] ${r.check} — ${r.observed}`),
+    ...results.flatMap((r) => [`[${String(r.outcome).toUpperCase()}] ${r.check} — ${r.observed}`, ...(r.fix ? [`    Fix${r.fix.platform ? ` (${r.fix.platform})` : ''}: ${r.fix.where}`, ...(r.fix.snippet ? [String(r.fix.snippet).split('\n').map((l: string) => `      ${l}`).join('\n')] : []), ...(r.fix.note ? [`    Note: ${r.fix.note}`] : []), ...(r.fix.doc ? [`    Docs: ${r.fix.doc}`] : [])] : [])]),
   ];
   if (d?.stored && d?.id) lines.push('', `Set ${d.id}: re-checked daily by DechoNet; ${d.owner === 'account' ? "a set that stops holding is reported in the API key account's daily mail" : `anonymous (no alerts), kept until ${d.expiresAt ?? '30 days after the last check'}`}.`, `Status page: ${d.url}`);
   else lines.push('', 'Checked once; nothing stored.');
@@ -811,7 +812,7 @@ function formatExpect(d: any) {
     content: [{ type: 'text' as const, text: lines.join('\n') }],
     structuredContent: {
       ...(d?.id ? { id: d.id, url: d.url } : {}), domain: String(d?.domain ?? ''), state: d?.state ?? null, checkedAt: d?.checkedAt ?? null,
-      results: results.map((r) => ({ check: String(r.check), outcome: String(r.outcome), observed: String(r.observed), tool: String(r.tool ?? '') })),
+      results: results.map((r) => ({ check: String(r.check), outcome: String(r.outcome), observed: String(r.observed), tool: String(r.tool ?? ''), ...(r.fix ? { fix: r.fix } : {}) })),
       stored: !!d?.stored, ...(d?.owner ? { owner: d.owner } : {}), ...(d?.expiresAt !== undefined ? { expiresAt: d.expiresAt } : {}),
       ...(receipts.length ? { receipts } : {}),
     },
@@ -1343,7 +1344,7 @@ export const tools: ToolDef[] = [
       'Record what a domain should show from outside and check it now — HSTS or another header present, DMARC enforcing, an issue key no longer reported, an HTTP or TLS grade at or above a level, a certificate with enough days left, a DNS record present, absent or containing a value, HTTPS answering. ' +
       "DechoNet reads the domain fresh (not from cache) with its public dns / ssl / http / email tools, from its own servers and the Seoul observation point, and then re-checks the set every day. Each result is pass, fail or unknown; unknown (a tool or part of it did not answer) is never a pass. " +
       "Without an API key the set is anonymous: no alerts, kept 30 days after its last check, reachable by id and status page. With an API key (Authorization: Bearer dn_…) the set belongs to that key's account, and a set that held and stops holding is reported in the account's daily mail. " +
-      'Not read-only (it stores the set); public checks only, so any domain is accepted. Typical use: after changing DNS, TLS, headers or mail settings, to state the intended result and be told if it is ever reverted. Returns the set id, status page, per-check results and signed observation receipts.',
+      'Not read-only (it stores the set); public checks only, so any domain is accepted. Typical use: after changing DNS, TLS, headers or mail settings, to state the intended result and be told if it is ever reverted. Returns the set id, status page, per-check results with where to fix what does not hold (for the platform the site runs on), and signed observation receipts.',
     schema: {
       domain: z.string().describe("Domain the checks are about (e.g. 'example.com'); scheme and path are stripped"),
       expect: z.array(expectCheck).min(1).max(20).describe('Checks, 1-20'),
