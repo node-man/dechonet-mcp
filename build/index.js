@@ -6,16 +6,16 @@ const server = new McpServer({
     // SYNC with SERVER_INFO in the monorepo remote handler (lib/mcp/handler.ts).
     name: 'dechonet',
     title: 'DechoNet',
-    version: '1.5.4',
+    version: '1.5.5',
     websiteUrl: 'https://dechonet.com/mcp',
     icons: [{ src: 'https://dechonet.com/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
 }, {
     // SYNC with the `instructions` in the monorepo remote handler (lib/mcp/handler.ts).
-    instructions: 'DechoNet domain-reconnaissance tools. No API key is needed for non-commercial use; from 2026-11-08 commercial use (inside a paid product, for clients, or regular company work) needs MCP·API Pro — see https://dechonet.com/pro. Recommended workflow: ' +
-        '1) security_scan for the overall verdict, then the specific tool for each flagged area (dns_lookup, ssl_check, http_security, email_auth, subdomain_discovery, lookalike_domains, owasp_check, impersonation_exposure). ' +
-        '2) When the user cares about this domain going forward, call watch_domain once — DechoNet then re-checks it daily and records every change. ' +
-        '3) On a later session about the same domain, start with domain_changes: it reports what changed since the last lookup or watch check (grade drops, new issues, cert renewals, DNS drift) — something a fresh one-off lookup cannot tell you. ' +
-        'Every result is interpreted (status, key numbers, issues with severity and confidence, concrete actions) and ends with a link to the full interactive report you can hand to the user. All tools except watch_domain are read-only. Business-plan accounts that sign in (send their DechoNet session cookie) also get asm_nuclei_start/status/cancel: an active check on domains they verified — see https://dechonet.com/pro. ' +
+    instructions: 'DechoNet domain-reconnaissance tools: public, read-only checks of domains, URLs and IP addresses (DNS, TLS certificates, HTTP security headers, email authentication, registration data, phishing links, exposure) and the change history DechoNet has observed. No account is needed; an optional DechoNet API key (Authorization: Bearer dn_…) gives a separate rate-limit bucket. Terms of use: https://dechonet.com/terms. ' +
+        'Typical flow: security_scan for an overall verdict, then the specific tool for each flagged area (dns_lookup, ssl_check, http_security, email_auth, subdomain_discovery, lookalike_domains, owasp_check, impersonation_exposure). ' +
+        'domain_changes reports what changed since DechoNet last looked at a domain (grade drops, new issues, certificate renewals, DNS drift). ' +
+        'watch_domain is the only tool that writes: it registers a domain for daily re-checks, so use it when the user asks to monitor a domain. ' +
+        'Each result gives a status, key numbers, issues with severity and confidence, recommended fixes and a link to the full report on dechonet.com. Signed-in DechoNet business accounts (DECHONET_SESSION_COOKIE) also see asm_nuclei_start/status/cancel, an active check limited to domains they have verified. ' +
         'Every tool is also a free web tool at https://dechonet.com. The same server is hosted at https://dechonet.com/mcp (Streamable HTTP, no install) with extra prompts and resources.',
 });
 // Register all tools. registerTool (not the legacy server.tool) so each

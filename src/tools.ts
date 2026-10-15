@@ -152,17 +152,17 @@ function formatHistory(d: any) {
   const t = String(d?.target ?? '');
   // No history page on the site: the human link is the target's current state (the full scan, or reverse DNS for an IP).
   const url = /^\d{1,3}(\.\d{1,3}){3}$/.test(t) ? reportUrl('reverse-dns', 'query', t) : reportUrl('all', 'query', t);
-  lines.push(`Current state on DechoNet (share this link with the user): ${url}`);
+  lines.push(`Current state on DechoNet: ${url}`);
   return { content: [{ type: 'text' as const, text: lines.join('\n') }], structuredContent: { target: t, observed: !!d?.observed, kinds: d?.kinds ?? [], note: String(d?.note ?? ''), reportUrl: url } };
 }
 function formatPivot(d: any) {
   const lines = [`=== Targets seen with ${d?.kind} = ${d?.value} ===`, `${d?.total ?? 0}${d?.totalCapped ? '+' : ''} target(s) in DechoNet's observations.`];
   if (d?.sharedInfra) lines.push('Shared infrastructure — sharing it says nothing about common ownership; no list is given.');
   for (const t of d?.targets ?? []) lines.push(`  ${t.target}  (first ${String(t.firstSeen).slice(0, 10)} · last ${String(t.lastSeen).slice(0, 10)})`);
-  if ((d?.targets?.length ?? 0) < (d?.total ?? 0) && !d?.sharedInfra) lines.push(`  … showing ${d.targets.length} (limit ${d.limit}; MCP·API Pro shows more).`);
+  if ((d?.targets?.length ?? 0) < (d?.total ?? 0) && !d?.sharedInfra) lines.push(`  … showing ${d.targets.length} (limit ${d.limit} for this API key).`);
   lines.push('', `Coverage: ${d?.note ?? ''}`);
   const url = 'https://dechonet.com/methodology?src=mcp-report';
-  lines.push(`How DechoNet observes infrastructure (share this link with the user): ${url}`);
+  lines.push(`How DechoNet observes infrastructure: ${url}`);
   return { content: [{ type: 'text' as const, text: lines.join('\n') }], structuredContent: { reportUrl: url, kind: String(d?.kind ?? ''), value: String(d?.value ?? ''), sharedInfra: !!d?.sharedInfra, total: Number(d?.total ?? 0), targets: d?.targets ?? [], note: String(d?.note ?? '') } };
 }
 
@@ -249,7 +249,7 @@ function formatPqc(data: any, url: string) {
   if (r.redirectsTo) lines.push('', `Note: ${data?.host ?? ''} redirects to ${r.redirectsTo}. Visitors land there and its result can differ — run pqc_readiness on ${r.redirectsTo} too.`);
   lines.push('');
   lines.push('Scope: public TLS endpoint on port 443 only — an external indicator, not a full PQC audit.');
-  lines.push(`Full interactive report (share this link with the user): ${url}`);
+  lines.push(`Full report on DechoNet: ${url}`);
   return {
     content: [{ type: 'text' as const, text: lines.join('\n') }],
     structuredContent: {
@@ -357,7 +357,7 @@ function formatResult(data: any, url?: string): { content: Array<{ type: 'text';
 
   if (url) {
     lines.push('');
-    lines.push(`Full interactive report (share this link with the user): ${url}`);
+    lines.push(`Full report on DechoNet: ${url}`);
   }
 
   const result: { content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, any> } =
@@ -373,9 +373,9 @@ function errorResult(msg: string) {
 // English category names + finding phrasings for owasp_check text output.
 // SYNC with OWASP_CAT / OWASP_FINDING in the monorepo remote registry.
 const OWASP_CAT: Record<string, string> = {
-  headers: 'Secure Headers', a02: 'A02 Cryptographic Failures',
-  a05: 'A05 Security Misconfiguration', a06: 'A06 Vulnerable & Outdated Components',
-  exposed_files: 'Exposed Sensitive Files (A01/A05)',
+  headers: 'Secure Headers', a02: 'A04 Cryptographic Failures',
+  a05: 'A02 Security Misconfiguration', a06: 'A03 Software Supply Chain Failures (outdated components)',
+  exposed_files: 'Exposed Sensitive Files (A01/A02)',
 };
 const OWASP_FINDING: Record<string, (d?: string) => string> = {
   header_missing: (d) => `Missing security header: ${d}`,
@@ -416,7 +416,7 @@ function formatOwasp(data: any, url: string) {
   lines.push('');
   lines.push(`Out of scope (not externally observable): ${notObs.map((n) => n.code).join(', ')}`);
   lines.push('');
-  lines.push(`Full interactive report (share this link with the user): ${url}`);
+  lines.push(`Full report on DechoNet: ${url}`);
   return {
     content: [{ type: 'text' as const, text: lines.join('\n') }],
     structuredContent: {
@@ -459,7 +459,7 @@ function formatImpersonation(data: any, url: string) {
     }
   }
   lines.push('');
-  lines.push(`Full interactive report (share this link with the user): ${url}`);
+  lines.push(`Full report on DechoNet: ${url}`);
   return {
     content: [{ type: 'text' as const, text: lines.join('\n') }],
     structuredContent: {
@@ -544,14 +544,13 @@ function formatWatchDomain(domain: string, results: Array<{ tool: string; endpoi
   }
   lines.push('');
   lines.push('Next time this domain comes up, call domain_changes first — it will report what changed since today.');
-  lines.push(`Monitoring overview for the user: ${origin}/pro?src=mcp-report`);
   return {
     content: [{ type: 'text' as const, text: lines.join('\n') }],
     structuredContent: {
       domain,
       watches: okOnes.map((r) => ({ tool: r.tool, endpoint: r.endpoint, url: `${origin}${r.url}` })),
       failed: failed.map((r) => r.tool),
-      reportUrl: `${origin}/pro?src=mcp-report`,
+      reportUrl: okOnes[0] ? `${origin}${okOnes[0].url}` : undefined,
     },
     ...(okOnes.length === 0 ? { isError: true as const } : {}),
   };
@@ -595,7 +594,7 @@ function formatGolive(data: any, url: string) {
     }
   }
   lines.push('');
-  lines.push(`Full interactive report (share this link with the user): ${url}`);
+  lines.push(`Full report on DechoNet: ${url}`);
   return {
     content: [{ type: 'text' as const, text: lines.join('\n') }],
     structuredContent: {
@@ -733,11 +732,11 @@ function formatPhishing(data: any, url: string) {
     if (l.finalUrl && l.finalUrl !== l.input) lines.push(`  lands on: ${l.finalUrl}${l.hops?.length ? ` (via ${l.hops.length} redirect(s))` : ''}`);
     lines.push(`  domain age: ${l.ageDays == null ? 'unknown' : `${l.ageDays} days`}${l.registrar ? ` · registrar ${l.registrar}` : ''}`);
     for (const s of l.signals ?? []) { const f = PHISHING_SIGNAL[s.key]; lines.push(`  - (${s.severity}) ${f ? f(s.detail) : s.key}`); }
-    if (l.officialSite?.url) lines.push(`  real site of the imitated brand (DechoNet brand list; tell the user to type it or use the official app, not the link): ${l.officialSite.url}`);
+    if (l.officialSite?.url) lines.push(`  real site of the imitated brand (from DechoNet's brand list; reach it by typing the address or through the official app, not via the link): ${l.officialSite.url}`);
   }
   if (data?.lure?.length) lines.push('', `Message wording matches common smishing lures: ${data.lure.join(', ')} (a hint, not proof).`);
   lines.push('', 'Scope: observable signals only, checked from DechoNet servers; cloaked pages (shown only to some phones/regions) can look clean. Never call a link "safe" — say "no warning signs found".');
-  lines.push(`Full interactive report (share this link with the user): ${url}`);
+  lines.push(`Full report on DechoNet: ${url}`);
   return {
     content: [{ type: 'text' as const, text: lines.join('\n') }],
     structuredContent: {
@@ -1025,7 +1024,7 @@ export const tools: ToolDef[] = [
 
         const url = reportUrl('subnet', 'query', cidr);
         const text = Object.entries(result).map(([k, v]) => `${k}: ${v}`).join('\n') +
-          `\n\nFull interactive report (share this link with the user): ${url}`;
+          `\n\nFull report on DechoNet: ${url}`;
         return { content: [{ type: 'text' as const, text }], structuredContent: { ...result, reportUrl: url } };
       } catch (e: any) { return errorResult(e.message); }
     },
@@ -1134,7 +1133,7 @@ export const tools: ToolDef[] = [
 
         const url = reportUrl('all', 'query', domain);
         lines.push('');
-        lines.push(`Full interactive report (share this link with the user): ${url}`);
+        lines.push(`Full report on DechoNet: ${url}`);
         return {
           content: [{ type: 'text' as const, text: lines.join('\n') }],
           structuredContent: {
@@ -1153,8 +1152,8 @@ export const tools: ToolDef[] = [
     outputSchema: owaspOutputShape,
     annotations: annotate('OWASP Security Checkup'),
     description:
-      "Assess a domain's OWASP posture from EXTERNAL OBSERVATION only: the OWASP Secure Headers Project plus the externally observable Top 10 subset — A02 Cryptographic Failures (TLS/cert), A05 Security Misconfiguration (header/info leaks), and A06 Vulnerable & Outdated Components (version disclosure) — returning an A+ to F grade. " +
-      'Scope: A01 (Access Control), A03 (Injection), A04, A07 (Authentication), A08, A09 and A10 (SSRF) are not checked — they need authenticated access or active/injection testing, so the result lists them as out-of-scope rather than "pass". Present the result as an external-posture check, not a full OWASP Top 10 assessment. ' +
+      "Assess a domain's OWASP posture from EXTERNAL OBSERVATION only: the OWASP Secure Headers Project plus the externally observable OWASP Top 10:2025 subset — A04 Cryptographic Failures (TLS/cert), A02 Security Misconfiguration (header/info leaks), and A03 Software Supply Chain Failures (outdated components via version disclosure) — returning an A+ to F grade. " +
+      'Scope: A01 (Access Control, incl. SSRF), A05 (Injection), A06 (Insecure Design), A07 (Authentication), A08, A09 and A10 (Exceptional Conditions) are not checked — they need authenticated access or active/injection testing, so the result lists them as out-of-scope rather than "pass". Present the result as an external-posture check, not a full OWASP Top 10 assessment. ' +
       'Unlike security_scan this is PASSIVE (a normal HTTPS request, the TLS certificate and a public CT-log lookup; no port scan, no path probing), so it is suitable for domains you do not own. The sensitive-file check (.env, .git, server-status) runs only for the verified domain owner on the web report (DNS TXT), never through this tool. Use http_security or ssl_check for depth on one layer. ' +
       'Read-only; requires no API key; rate-limited. Returns a text report: grade, per-category findings, the out-of-scope list, and a shareable report link.',
     schema: {
@@ -1197,7 +1196,7 @@ export const tools: ToolDef[] = [
       domain: z.string().describe("Domain whose recorded change history to fetch (e.g., 'example.com'). Scheme and path are stripped."),
     },
     handler: async ({ domain }) => {
-      try { return formatDomainChanges(await callApi(`/api/util/changes?query=${enc(domain)}`), 'https://dechonet.com/pro?src=mcp-report'); }
+      try { return formatDomainChanges(await callApi(`/api/util/changes?query=${enc(domain)}`), `https://dechonet.com/util/all?query=${enc(domain)}&src=mcp-report`); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
@@ -1226,7 +1225,7 @@ export const tools: ToolDef[] = [
     description:
       'Find other domains DechoNet has seen with the same infrastructure value — a nameserver, IP address, MX host, certificate issuer or registrar — with first and last seen, to map related infrastructure (e.g. other phishing domains on the same rare nameserver). ' +
       'Use it after domain_history or dns_lookup gives you a distinctive value. Shared infrastructure (CDN edges, public CAs, large registrars and DNS hosts) returns a count only, since sharing it says nothing about ownership. ' +
-      'Read-only; REQUIRES a free DechoNet API key (account page; remote: send Authorization: Bearer dn_…, npm: set DECHONET_API_KEY); 20 rows, 100 with MCP·API Pro; rate-limited. Coverage: only DechoNet\'s own observations.',
+      'Read-only; REQUIRES a free DechoNet API key (account page; remote: send Authorization: Bearer dn_…, npm: set DECHONET_API_KEY); up to 20 rows per call (higher for some keys); rate-limited. Coverage: only DechoNet\'s own observations.',
     schema: {
       kind: z.enum(['dns:a', 'dns:aaaa', 'dns:ns', 'dns:mx', 'ssl:issuer', 'rdap:registrar', 'rdap:ns']).describe('Which kind of value to pivot on.'),
       value: z.string().describe("The value itself, e.g. 'ns1.example-dns.net' or '203.0.113.9'."),
