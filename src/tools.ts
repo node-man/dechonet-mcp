@@ -724,12 +724,19 @@ const PHISHING_VERDICT: Record<string, string> = {
   no_links: 'NO LINKS FOUND in the text',
 };
 
+/** A landing URL without its query/fragment: redirect targets carry session values (nonce, state,
+ *  request ids) the user does not need to judge a link — directory review asks for minimal responses. */
+function landing(u: unknown): string {
+  const s = String(u ?? '');
+  try { const x = new URL(s); return `${x.origin}${x.pathname}${x.search || x.hash ? '?…' : ''}`; } catch { return s.slice(0, 200); }
+}
+
 function formatPhishing(data: any, url: string) {
   const links: any[] = data?.links ?? [];
   const lines: string[] = [`=== Phishing Link Check ===`, `Verdict: ${PHISHING_VERDICT[data?.verdict] ?? String(data?.verdict ?? '')}`, ''];
   for (const l of links) {
     lines.push(`[${String(l.verdict).toUpperCase()}] ${l.input}`);
-    if (l.finalUrl && l.finalUrl !== l.input) lines.push(`  lands on: ${l.finalUrl}${l.hops?.length ? ` (via ${l.hops.length} redirect(s))` : ''}`);
+    if (l.finalUrl && l.finalUrl !== l.input) lines.push(`  lands on: ${landing(l.finalUrl)}${l.hops?.length ? ` (via ${l.hops.length} redirect(s))` : ''}`);
     lines.push(`  domain age: ${l.ageDays == null ? 'unknown' : `${l.ageDays} days`}${l.registrar ? ` · registrar ${l.registrar}` : ''}`);
     for (const s of l.signals ?? []) { const f = PHISHING_SIGNAL[s.key]; lines.push(`  - (${s.severity}) ${f ? f(s.detail) : s.key}`); }
     if (l.officialSite?.url) lines.push(`  real site of the imitated brand (from DechoNet's brand list; reach it by typing the address or through the official app, not via the link): ${l.officialSite.url}`);
@@ -741,7 +748,7 @@ function formatPhishing(data: any, url: string) {
     content: [{ type: 'text' as const, text: lines.join('\n') }],
     structuredContent: {
       verdict: String(data?.verdict ?? ''),
-      links: links.map((l) => ({ url: String(l.input), finalUrl: String(l.finalUrl ?? ''), verdict: String(l.verdict), ageDays: typeof l.ageDays === 'number' ? l.ageDays : null, signals: (l.signals ?? []).map((s: any) => String(s.key)) })),
+      links: links.map((l) => ({ url: String(l.input), finalUrl: landing(l.finalUrl), verdict: String(l.verdict), ageDays: typeof l.ageDays === 'number' ? l.ageDays : null, signals: (l.signals ?? []).map((s: any) => String(s.key)) })),
       reportUrl: url,
     },
   };

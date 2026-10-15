@@ -689,13 +689,25 @@ const PHISHING_VERDICT = {
     no_signals: 'NO WARNING SIGNS FOUND — not a guarantee of safety; never enter passwords or card numbers from a text link',
     no_links: 'NO LINKS FOUND in the text',
 };
+/** A landing URL without its query/fragment: redirect targets carry session values (nonce, state,
+ *  request ids) the user does not need to judge a link — directory review asks for minimal responses. */
+function landing(u) {
+    const s = String(u ?? '');
+    try {
+        const x = new URL(s);
+        return `${x.origin}${x.pathname}${x.search || x.hash ? '?…' : ''}`;
+    }
+    catch {
+        return s.slice(0, 200);
+    }
+}
 function formatPhishing(data, url) {
     const links = data?.links ?? [];
     const lines = [`=== Phishing Link Check ===`, `Verdict: ${PHISHING_VERDICT[data?.verdict] ?? String(data?.verdict ?? '')}`, ''];
     for (const l of links) {
         lines.push(`[${String(l.verdict).toUpperCase()}] ${l.input}`);
         if (l.finalUrl && l.finalUrl !== l.input)
-            lines.push(`  lands on: ${l.finalUrl}${l.hops?.length ? ` (via ${l.hops.length} redirect(s))` : ''}`);
+            lines.push(`  lands on: ${landing(l.finalUrl)}${l.hops?.length ? ` (via ${l.hops.length} redirect(s))` : ''}`);
         lines.push(`  domain age: ${l.ageDays == null ? 'unknown' : `${l.ageDays} days`}${l.registrar ? ` · registrar ${l.registrar}` : ''}`);
         for (const s of l.signals ?? []) {
             const f = PHISHING_SIGNAL[s.key];
@@ -712,7 +724,7 @@ function formatPhishing(data, url) {
         content: [{ type: 'text', text: lines.join('\n') }],
         structuredContent: {
             verdict: String(data?.verdict ?? ''),
-            links: links.map((l) => ({ url: String(l.input), finalUrl: String(l.finalUrl ?? ''), verdict: String(l.verdict), ageDays: typeof l.ageDays === 'number' ? l.ageDays : null, signals: (l.signals ?? []).map((s) => String(s.key)) })),
+            links: links.map((l) => ({ url: String(l.input), finalUrl: landing(l.finalUrl), verdict: String(l.verdict), ageDays: typeof l.ageDays === 'number' ? l.ageDays : null, signals: (l.signals ?? []).map((s) => String(s.key)) })),
             reportUrl: url,
         },
     };
