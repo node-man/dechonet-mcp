@@ -20,7 +20,18 @@ No npx, no install. Point any MCP client that speaks Streamable HTTP at:
 https://dechonet.com/mcp
 ```
 
-Claude Desktop / Claude Code (`claude mcp add --transport http dechonet https://dechonet.com/mcp`), Cursor, and other HTTP-capable clients connect directly. The remote endpoint also serves 3 curated prompts (`audit_domain`, `monitor_setup`, `investigate_changes`) and 2 reference resources.
+| Client | How to connect |
+|---|---|
+| Claude Code | `claude mcp add --transport http dechonet https://dechonet.com/mcp` |
+| ChatGPT | Settings → Apps (Connectors) → Advanced → Developer mode → Create, paste the URL, authentication "None" (plan availability and menu names vary while in beta) |
+| Cursor | `~/.cursor/mcp.json`: `{"mcpServers":{"dechonet":{"url":"https://dechonet.com/mcp"}}}` |
+| VS Code (Copilot agent mode) | `.vscode/mcp.json`: `{"servers":{"dechonet":{"type":"http","url":"https://dechonet.com/mcp"}}}` |
+| Gemini CLI | `gemini mcp add --transport http dechonet https://dechonet.com/mcp` (in `settings.json` use `httpUrl`, not `url`) |
+| Codex | `codex mcp add dechonet --url https://dechonet.com/mcp` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json`: `{"mcpServers":{"dechonet":{"serverUrl":"https://dechonet.com/mcp"}}}` |
+| Claude Desktop | stdio via npm — see Quick Start below |
+
+Step-by-step for each client: [dechonet.com/mcp](https://dechonet.com/mcp). The remote endpoint also serves 3 curated prompts (`audit_domain`, `monitor_setup`, `investigate_changes`) and 2 reference resources.
 
 ## Quick Start (stdio, Claude Desktop)
 
