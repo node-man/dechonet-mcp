@@ -23,7 +23,7 @@ https://dechonet.com/mcp
 | Client | How to connect |
 |---|---|
 | Claude Code | `claude mcp add --transport http dechonet https://dechonet.com/mcp` |
-| Claude app / Desktop | Customize → Connectors → + Add → Add custom connector, paste the URL (Free plan: one custom connector; Team/Enterprise: an owner adds it first) |
+| Claude app / Desktop | Listed in the [Claude connectors directory](https://claude.ai/directory/connectors/dechonet): Customize → Connectors, search DechoNet → Connect. Or + Add → Add custom connector with the URL (Free plan: one custom connector) |
 | ChatGPT | [chatgpt.com/plugins](https://chatgpt.com/plugins) → + → Add custom MCP server → URL under Connection, no authentication → Create as a plugin (work/school accounts need an admin to allow custom MCP servers) |
 | Cursor | `~/.cursor/mcp.json`: `{"mcpServers":{"dechonet":{"url":"https://dechonet.com/mcp"}}}` |
 | VS Code (Copilot agent mode) | `.mcp.json` at the workspace root: `{"mcpServers":{"dechonet":{"type":"http","url":"https://dechonet.com/mcp"}}}` (in `.vscode/mcp.json` the root key is `servers`) |
