@@ -290,7 +290,7 @@ function observationOf(data: any): { state: 'complete' | 'partial' | 'unknown'; 
   return { state: !interp ? 'unknown' : interp.partial ? 'partial' : 'complete', observedAt, cached: !!meta.cached, ageMinutes: Number.isFinite(age as number) ? age : null };
 }
 function observationLine(o: ReturnType<typeof observationOf>): string {
-  const state = o.state === 'partial' ? 'partial — some checks did not answer; treat what is missing as not verified, never as clean'
+  const state = o.state === 'partial' ? 'partial — some checks did not answer; what is missing was not verified (not a clean result)'
     : o.state === 'complete' ? 'complete' : 'unknown';
   const when = o.observedAt ? `observed ${o.observedAt}${o.cached ? ` (cached result, ${o.ageMinutes != null && o.ageMinutes >= 120 ? `${Math.round(o.ageMinutes / 60)}h` : `${o.ageMinutes ?? 0}m`} old)` : ' (fresh)'}` : 'observation time not reported';
   return `Observation: ${state} · ${when}`;
@@ -1042,22 +1042,22 @@ export const tools: ToolDef[] = [
     outputSchema: scanOutputShape,
     annotations: annotate('Full Domain Security Scan'),
     description:
-      'One-shot comprehensive audit of a domain: runs DNS, SSL, HTTP headers, email auth, port scan, DNS propagation, reverse DNS, and ASN/RDAP checks in parallel, then computes a 0-100 Health Score with an A-F grade and a prioritized action list. ' +
+      'One-shot comprehensive audit of a domain: runs DNS, SSL, HTTP headers, email auth, DNS propagation, reverse DNS, and ASN/RDAP checks in parallel, then computes a 0-100 Health Score with an A-F grade and a prioritized action list. ' +
       "Use this as the default starting point for \"is this domain healthy/secure?\" questions. Call the individual tools (e.g., ssl_check, email_auth) instead when you need depth on one area. " +
-      'BEHAVIOR: this includes an ACTIVE port_scan of the domain\'s host, so only run it on domains you own or are authorized to test. Read-only otherwise; requires no API key; rate-limited (it makes multiple backend calls). Returns the score, per-area breakdown, top actions, and per-area summaries.',
+      'BEHAVIOR: passive — public lookups and ordinary HTTPS requests only; open ports are NOT scanned here (that area is left out of the score; port_scan is the separate, active check). Read-only; requires no API key; rate-limited (it makes multiple backend calls). Returns the score, per-area breakdown, top actions, and per-area summaries.',
     schema: {
-      domain: z.string().describe("Domain to audit end-to-end (e.g., 'example.com'). Scheme and path are stripped. NOTE: the host is also port-scanned, so use only targets you are authorized to test."),
+      domain: z.string().describe("Domain to audit (e.g., 'example.com'). Scheme and path are stripped."),
     },
     handler: async ({ domain }) => {
       try {
         const d = enc(domain);
         const httpTarget = domain.startsWith('http') ? domain : `https://${domain}`;
-        const [dns, ssl, http, email, port, propagation, rdap] = await Promise.allSettled([
+        // Passive (10/15): no port scan here — port_scan is the explicit, active tool.
+        const [dns, ssl, http, email, propagation, rdap] = await Promise.allSettled([
           callApi(`/api/util/dns?query=${d}`),
           callApi(`/api/util/ssl?host=${d}`),
           callApi(`/api/util/http?url=${enc(httpTarget)}`),
           callApi(`/api/util/email?query=${d}`),
-          callApi(`/api/util/port?host=${d}`),
           callApi(`/api/util/propagation?domain=${d}&type=A`),
           callApi(`/api/util/rdap?query=${d}`),
         ]);
@@ -1065,11 +1065,11 @@ export const tools: ToolDef[] = [
         const get = (r: PromiseSettledResult<any>) => r.status === 'fulfilled' ? r.value : null;
         const results: Record<string, any> = {
           dns: get(dns), ssl: get(ssl), http: get(http), email: get(email),
-          port: get(port), propagation: get(propagation), rdap: get(rdap),
+          port: { na: true }, propagation: get(propagation), rdap: get(rdap),
         };
 
         // Areas that can't apply are left out of the score (SYNC: health.ts healthScore).
-        const na = new Set<string>();
+        const na = new Set<string>(['port']); // passive: ports are not scanned here
         if (rdap.status === 'rejected' && (rdap.reason as any)?.reason === 'rdap_no_service') na.add('rdap');
         // Extract origin IP for rDNS + ASN
         const aRecord = results.dns?.raw?.records?.find((r: any) => r.type === 'A');
@@ -1093,7 +1093,7 @@ export const tools: ToolDef[] = [
 
         for (const [key, weight] of Object.entries(weights)) {
           const r = results[key];
-          if (na.has(key)) { areas.push(`${key}: N/A (not scored — ${key === 'rdap' ? 'no RDAP for this TLD' : 'no A record'})`); continue; }
+          if (na.has(key)) { areas.push(`${key}: N/A (not scored — ${key === 'rdap' ? 'no RDAP for this TLD' : key === 'port' ? 'passive scan, ports not checked' : 'no A record'})`); continue; }
           applicable += weight;
           if (!r) { lostTotal += weight; areas.push(`${key}: FAILED (-${weight})`); continue; }
           const interp = r.interpretation;
@@ -1160,7 +1160,7 @@ export const tools: ToolDef[] = [
     annotations: annotate('OWASP Security Checkup'),
     description:
       "Assess a domain's OWASP posture from EXTERNAL OBSERVATION only: the OWASP Secure Headers Project plus the externally observable OWASP Top 10:2025 subset — A04 Cryptographic Failures (TLS/cert), A02 Security Misconfiguration (header/info leaks), and A03 Software Supply Chain Failures (outdated components via version disclosure) — returning an A+ to F grade. " +
-      'Scope: A01 (Access Control, incl. SSRF), A05 (Injection), A06 (Insecure Design), A07 (Authentication), A08, A09 and A10 (Exceptional Conditions) are not checked — they need authenticated access or active/injection testing, so the result lists them as out-of-scope rather than "pass". Present the result as an external-posture check, not a full OWASP Top 10 assessment. ' +
+      'Scope: A01 (Access Control, incl. SSRF), A05 (Injection), A06 (Insecure Design), A07 (Authentication), A08, A09 and A10 (Exceptional Conditions) are not checked — they need authenticated access or active/injection testing, so the result lists them as out-of-scope rather than "pass". The result is an external-posture check, not a full OWASP Top 10 assessment. ' +
       'Unlike security_scan this is PASSIVE (a normal HTTPS request, the TLS certificate and a public CT-log lookup; no port scan, no path probing), so it is suitable for domains you do not own. The sensitive-file check (.env, .git, server-status) runs only for the verified domain owner on the web report (DNS TXT), never through this tool. Use http_security or ssl_check for depth on one layer. ' +
       'Read-only; requires no API key; rate-limited. Returns a text report: grade, per-category findings, the out-of-scope list, and a shareable report link.',
     schema: {
@@ -1196,8 +1196,8 @@ export const tools: ToolDef[] = [
     annotations: annotate('Domain Change History'),
     description:
       'Report what has changed for a domain over time — the security regressions and drift that DechoNet\'s daily monitoring has recorded across every watch on the domain (SSL grade, headers, DNS, OWASP posture, impersonation exposure, etc.). ' +
-      'Use this to answer "what changed on my domain since yesterday/last week?" — a question that requires persistent snapshots and therefore cannot be reconstructed from a single live lookup. When a domain you have looked at before comes up again, start with this tool. ' +
-      'Two sources: (a) the daily watch timeline if the domain is watched (start one with watch_domain), and (b) even without a watch, the difference between the last two stored lookups of each tool — so a second lookup already yields a comparison. The point-in-time tools (security_scan, owasp_check, ssl_check) give the current state instead. ' +
+      'Use this to answer "what changed on my domain since yesterday/last week?" — a question that requires persistent snapshots and therefore cannot be reconstructed from a single live lookup. It is the first check to run when a domain looked at before comes up again. ' +
+      'Two sources: (a) the daily watch timeline if the domain is under DechoNet monitoring, and (b) even without a watch, the difference between the last two stored lookups of each tool — so a second lookup already yields a comparison. The point-in-time tools (security_scan, owasp_check, ssl_check) give the current state instead. ' +
       'Read-only; requires no API key; rate-limited. Returns the monitored tools, a newest-first change timeline, lookup-to-lookup changes, and a link to manage monitoring.',
     schema: {
       domain: z.string().describe("Domain whose recorded change history to fetch (e.g., 'example.com'). Scheme and path are stripped."),
@@ -1294,8 +1294,8 @@ export const tools: ToolDef[] = [
     annotations: annotate('Post-Quantum TLS Readiness'),
     description:
       'Check whether a website\'s public TLS endpoint is ready for post-quantum cryptography: does it complete a TLS 1.3 handshake that offers only the hybrid X25519MLKEM768 key exchange (ML-KEM), and does the organisation\'s own server provide it or a CDN edge in front of it. Also reports what the certificate chain is signed with (tracked, not scored: public CAs do not issue post-quantum certificates yet). ' +
-      'Verdicts: ready (the origin server supports it), partial (a CDN edge provides it; the CDN-to-origin leg is invisible), not_ready (the hybrid-only handshake was refused), unknown (inconclusive; do not report it as "no"). ' +
-      'Scope: only the public endpoint on port 443. Internal systems, VPNs, code, and Korean PQC algorithms (no standard TLS codepoints yet) are not observable, so present the result as an external indicator of migration progress, not a full PQC audit. Read-only; requires no API key; rate-limited. Returns the verdict, a 0-100 readiness score and grade, per-check statuses, and a shareable report link.',
+      'Verdicts: ready (the origin server supports it), partial (a CDN edge provides it; the CDN-to-origin leg is invisible), not_ready (the hybrid-only handshake was refused), unknown (inconclusive — not the same as "no"). ' +
+      'Scope: only the public endpoint on port 443. Internal systems, VPNs, code, and Korean PQC algorithms (no standard TLS codepoints yet) are not observable, so the result is an external indicator of migration progress, not a full PQC audit. Read-only; requires no API key; rate-limited. Returns the verdict, a 0-100 readiness score and grade, per-check statuses, and a shareable report link.',
     schema: {
       domain: z.string().describe("Domain whose HTTPS endpoint to check (e.g., 'example.com'). Scheme and path are stripped."),
     },
@@ -1311,10 +1311,10 @@ export const tools: ToolDef[] = [
     annotations: annotate('Phishing / Smishing Link Check'),
     description:
       'Check the links in a suspicious text message (smishing) or e-mail before anyone taps them. Paste the whole message or a single URL: every link is extracted, followed through URL shorteners to its real destination, and judged on observable signals — domain age from RDAP, impersonation of Korean banks/couriers/telecoms/portals and global brands incl. AI services such as ChatGPT/Claude/Gemini (brand keyword, lookalike spelling, or the brand domain worn as a subdomain), ClickFix pages (a fake "verify you are human" check that has the visitor paste a command into Win+R/PowerShell), Android APK downloads, punycode, public phishing/malware feeds, and DechoNet\'s own impersonation tracking. ' +
-      'Use this when a user asks whether a link or message is a scam. Verdicts: danger, suspicious, unreachable, official (lands on the brand\'s own domain), no_signals (no warning signs found — never present this as "safe"). ' +
+      'Use this when a user asks whether a link or message is a scam. Verdicts: danger, suspicious, unreachable, official (lands on the brand\'s own domain), no_signals (no warning signs found; this is not a finding that the link is safe). ' +
       'Reads landing-page HTML; inconclusive links may also run page scripts in isolated Chromium under the shared daily cap. DechoNet does not click, enter values or submit forms. The message text is not stored; requires no API key; rate-limited. Returns per-link verdicts with reasons and a shareable report link.',
     schema: {
-      text: z.string().describe('The suspicious message exactly as received (any language), or just the URL. Up to 5 links are checked.'),
+      text: z.string().describe('The link(s) to check — a URL, or the message text with verification codes, passwords and personal details removed (any language). Only the links are used (up to 5); the text is not stored.'),
     },
     handler: async ({ text }) => {
       try {
