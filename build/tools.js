@@ -1478,16 +1478,17 @@ export const tools = [
         title: 'Report a Page',
         outputSchema: { received: z.boolean(), host: z.string(), kind: z.string() },
         annotations: { title: 'Report a Page', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'Report a page to DechoNet: phishing or brand impersonation, a fake payment window (card fields where a payment provider should be), hidden instructions aimed at AI agents, a malicious download, or a DechoNet verdict that looks wrong (false_positive) or a danger it missed (missed). ' +
-            'Only the host and the kind are kept, for 90 days, with an anonymous reporter hash used to count independent reports — no path, query, page text or free text. ' +
+        description: 'Report a page to DechoNet: phishing or brand impersonation, a fake payment window (card fields where a payment provider should be), hidden instructions aimed at AI agents, a malicious download, a DechoNet verdict that looks wrong (false_positive) or a danger it missed (missed), an MCP server whose tool descriptions steer agents (malicious_mcp — url is the MCP endpoint), or a network anomaly (network_anomaly — the certificate serial/issuer or addresses you saw for the host, in observed). ' +
+            'Kept for 90 days: the host and the kind, with an anonymous reporter hash used to count independent reports; for malicious_mcp the endpoint path, for network_anomaly the observed values and the country of the connection. No query, page text or free text. ' +
             'A report changes no verdict by itself: DechoNet opens the page itself and only what it observes counts; pages reported by several independent sources are looked at first. Not read-only (it records the report); rate-limited.',
         schema: {
             url: z.string().describe('Address of the page (only its host is kept)'),
-            kind: z.enum(['phishing', 'fake_payment', 'hidden_instructions', 'malicious_download', 'false_positive', 'missed']).describe('What is wrong with the page'),
+            kind: z.enum(['phishing', 'fake_payment', 'hidden_instructions', 'malicious_download', 'false_positive', 'missed', 'malicious_mcp', 'network_anomaly']).describe('What is wrong with the page'),
+            observed: z.object({ serial: z.string().optional(), issuer: z.string().optional(), ips: z.array(z.string()).optional() }).optional().describe('network_anomaly only: the certificate serial (hex) and issuer, and the addresses, you saw for the host'),
         },
-        handler: async ({ url, kind }) => {
+        handler: async ({ url, kind, observed }) => {
             try {
-                const d = await postApi('/api/page-report', { url, kind });
+                const d = await postApi('/api/page-report', { url, kind, ...(observed ? { observed } : {}) });
                 return { content: [{ type: 'text', text: `Report received for ${d.host} (${d.kind}). ${d.note}` }], structuredContent: { received: !!d.received, host: String(d.host), kind: String(d.kind) } };
             }
             catch (e) {
