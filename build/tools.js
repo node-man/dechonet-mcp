@@ -845,8 +845,9 @@ export const tools = [
         outputSchema: interpOutputShape,
         annotations: annotate('SSL Certificate Check'),
         description: "Inspect a host's served TLS/SSL certificate and connection: expiry date, issuer, SAN list, chain integrity, revocation (OCSP, then CRL; unknown when neither answers — not graded unless revoked), TLS version, and HSTS, returning an A+ to F grade weighted by certificate validity (40%), TLS version (25%), chain trust (15%), and HSTS (20%). " +
+            'From Seoul it also lists the protocol versions and cipher suites the server accepts — including SSL 3.0, RC4, 3DES, export, NULL and anonymous suites and the Korean SEED/ARIA ciphers — with TLS compression, secure renegotiation, TLS_FALLBACK_SCSV, DH group size and TLS 1.3 key exchange groups; weak findings cap the grade as SSL Labs does (F, C or B). ' +
             'Use this to diagnose certificate or HTTPS-handshake problems for one host. Use http_security instead to audit response security headers, or security_scan for an all-in-one domain report. ' +
-            'Read-only: it completes a TLS handshake but sends no application data; requires no API key; rate-limited. Returns a text report: grade, expiry/issuer KPIs, issues, and actions.',
+            'Read-only: one full TLS handshake plus opening ClientHello messages whose first answer is read; no application data and no vulnerability probes; requires no API key; rate-limited. Returns a text report: grade, expiry/issuer KPIs, issues, and actions.',
         schema: {
             host: z.string().describe("Hostname to inspect, without scheme (e.g., 'example.com'). The host portion of a pasted URL is also accepted."),
             port: z.number().default(443).describe('TCP port for the TLS handshake. Defaults to 443 (standard HTTPS); set this only for a non-standard HTTPS port such as 8443.'),
