@@ -353,6 +353,11 @@ function formatResult(data: any, url?: string): { content: Array<{ type: 'text';
       }
       lines.push('');
     }
+    if (interp.unchecked?.length) {
+      lines.push('Not checked:');
+      for (const u of interp.unchecked) lines.push(`  - ${u}`);
+      lines.push('');
+    }
 
     if (interp.securityGrade) {
       lines.push(`Security Grade: ${interp.securityGrade} (${interp.securityScore}/100)`);
@@ -1495,6 +1500,23 @@ export const tools: ToolDef[] = [
     },
     handler: async ({ domain }) => {
       try { return formatPqc(await callApi(`/api/util/pqc?host=${enc(domain)}`), reportUrl('pqc', 'host', domain)); }
+      catch (e: any) { return errorResult(e.message); }
+    },
+  },
+  {
+    name: 'mcp_server_check',
+    title: 'MCP Server Check',
+    outputSchema: interpOutputShape,
+    annotations: annotate('MCP Server Check'),
+    description:
+      'Check a remote MCP server from outside before connecting it to an agent: whether it requires authentication (and publishes OAuth protected-resource metadata, RFC 9728), which of its tools act on the world (run commands, write or delete files, send messages, make payments, read secrets), whether its server instructions or tool and parameter descriptions contain text that steers an agent (tool poisoning), whether a web page on any site could call it (CORS and Origin), HTTPS, and tool annotations. ' +
+      'Sends initialize and tools/list only — no tool is ever called; query strings are removed before anything is sent or stored. Public addresses only. Findings cover what the server shows from outside: what a tool does when called, the server code and tools behind a login are not checked and are listed as not checked. ' +
+      'Read-only; requires no API key; rate-limited. Returns status, KPIs, issues, actions, what was not checked, and a shareable report link.',
+    schema: {
+      url: z.string().describe("The remote MCP endpoint (e.g., 'https://example.com/mcp'). Query strings are removed."),
+    },
+    handler: async ({ url }) => {
+      try { return formatResult(await callApi(`/api/util/mcp-check?url=${enc(url)}`), reportUrl('mcp-check', 'url', url)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },
