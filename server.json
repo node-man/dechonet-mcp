@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.dechonet/mcp",
-  "description": "25 security tools for AI agents: phishing links, exposure maps, DNS, SSL, PQC, history, pivots.",
+  "description": "30 security tools for AI agents: phishing links, exposure maps, DNS, SSL, PQC, history, pivots.",
   "repository": {
     "url": "https://github.com/node-man/dechonet-mcp",
     "source": "github"
   },
-  "version": "1.5.17",
+  "version": "1.6.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dechonet-mcp",
-      "version": "1.5.17",
+      "version": "1.6.0",
       "transport": {
         "type": "stdio"
       },

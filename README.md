@@ -65,6 +65,18 @@ npx dechonet-mcp
 npm install -g dechonet-mcp
 ```
 
+## Command line
+
+The same checks work from a terminal or a CI step — no MCP client needed:
+
+```bash
+npx dechonet-mcp ssl example.com
+npx dechonet-mcp email example.com --json
+npx dechonet-mcp scan example.com --fail-on bad   # exit 2 when the overall grade is D or F
+```
+
+Checks: `dns`, `ssl`, `http`, `email`, `port`, `propagation`, `rdns`, `asn`, `whois`, `subdomains`, `lookalike`, `scan`, `owasp`, `golive`, `pqc`, `mcp`, `phishing`, `exposure`, `changes`, `history`, `impersonation`, `ip`, `subnet` (or any tool name below). `--json` prints the structured result, `--raw` keeps the raw data, `--port` sets the TLS port. Exit codes: 0 done, 1 the lookup failed, 2 the result reached `--fail-on` (`bad` or `warn`). With no arguments the package runs as the MCP server.
+
 ## Available Tools
 
 | Tool | Description |

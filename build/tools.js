@@ -5,6 +5,8 @@ const LOCALE = process.env.DECHONET_LOCALE || 'en';
 // Optional free API key (account page): own rate-limit bucket; needed for infrastructure_pivot.
 const accountCookie = (path) => /^\/api\/account\/asm\/nuclei-(start|status|cancel)(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? { Cookie: process.env.DECHONET_SESSION_COOKIE } : {};
 const API_KEY = (process.env.DECHONET_API_KEY ?? '').trim();
+/** Read at call time: the command-line mode (cli.ts) sets DECHONET_CLIENT=cli, counted apart from MCP use. */
+const ua = () => (process.env.DECHONET_CLIENT === 'cli' ? 'DechoNet-CLI/1.0' : 'DechoNet-MCP/1.0');
 const caseCookie = (path) => /^\/api\/(?:pilot\/kit-(?:search|observe)|account\/asm\/nuclei-(?:start|status|cancel))(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? { Cookie: process.env.DECHONET_SESSION_COOKIE } : {};
 export const receiptScope = new AsyncLocalStorage();
 export const receiptsShape = z.array(z.object({ tool: z.string(), id: z.string(), url: z.string() })).optional()
@@ -20,7 +22,7 @@ export function withReceipts(result, receipts) {
 }
 async function callApi(path) {
     const res = await fetch(`${BASE_URL}${path}`, {
-        headers: { ...caseCookie(path), 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, 'X-Decho-Receipt': '1', ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
+        headers: { ...caseCookie(path), 'User-Agent': ua(), 'Accept-Language': LOCALE, 'X-Decho-Receipt': '1', ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
     });
     const json = await res.json();
     if (!json.ok) {
@@ -38,7 +40,7 @@ async function callApi(path) {
 async function postApi(path, payload) {
     const res = await fetch(`${BASE_URL}${path}`, {
         method: 'POST',
-        headers: { ...caseCookie(path), 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE, ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
+        headers: { ...caseCookie(path), 'Content-Type': 'application/json', 'User-Agent': ua(), 'Accept-Language': LOCALE, ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) },
         body: JSON.stringify(payload),
     });
     const json = await res.json();
@@ -1081,7 +1083,7 @@ export const tools = [
             try {
                 const res = await fetch(`${BASE_URL}/api/util/email-header`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE },
+                    headers: { 'Content-Type': 'application/json', 'User-Agent': ua(), 'Accept-Language': LOCALE },
                     body: JSON.stringify({ headers }),
                 });
                 const json = await res.json();
@@ -1218,7 +1220,8 @@ export const tools = [
                 const areas = [];
                 const actions = [];
                 for (const [key, weight] of Object.entries(weights)) {
-                    const r = results[key];
+                    // A block page (HTTP 403/429) is a failed lookup. SYNC with src/lib/scoring/health.ts computeHealth.
+                    const r = results[key]?.interpretation?.blocked ? null : results[key];
                     if (r?.na) {
                         areas.push(`${key}: N/A (not scored — ${key === 'rdap' ? 'no RDAP for this TLD' : 'no website: neither the domain nor www has an address'})`);
                         continue;
@@ -1608,7 +1611,7 @@ export const tools = [
             try {
                 const res = await fetch(`${BASE_URL}/api/util/phishing`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'User-Agent': 'DechoNet-MCP/1.0', 'Accept-Language': LOCALE },
+                    headers: { 'Content-Type': 'application/json', 'User-Agent': ua(), 'Accept-Language': LOCALE },
                     body: JSON.stringify({ text }),
                 });
                 const json = await res.json();

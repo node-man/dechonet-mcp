@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+// Arguments = command-line mode (cli.ts); none = MCP stdio server, as before.
+// A leading --flag (other than --help) is left to the MCP server, so an existing client config never turns into a CLI run.
+const first = process.argv[2];
+if (first && (!first.startsWith('-') || first === '--help' || first === '-h')) {
+  const { runCli } = await import('./cli.js');
+  process.exit(await runCli(process.argv.slice(2)));
+}
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { tools, receiptScope, receiptsShape, withReceipts, type ReceiptRef } from './tools.js';
@@ -9,7 +17,7 @@ const server = new McpServer(
     // SYNC with SERVER_INFO in the monorepo remote handler (lib/mcp/handler.ts).
     name: 'dechonet',
     title: 'DechoNet',
-    version: '1.5.17',
+    version: '1.6.0',
     websiteUrl: 'https://dechonet.com/mcp',
     icons: [{ src: 'https://dechonet.com/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
   },
