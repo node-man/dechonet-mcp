@@ -95,7 +95,8 @@ const subnetOutputShape = {
 const scanOutputShape = {
     score: z.number().describe('Health Score 0-100'),
     grade: z.string().describe('Letter grade A+ to F'),
-    areas: z.array(z.object({ area: z.string(), verdict: z.string() })).describe('Per-area verdicts'),
+    areas: z.array(z.object({ area: z.string(), verdict: z.string() })).describe('Per-area verdicts of the scored areas (ssl, http, email, rdap, dns, exposure, reputation)'),
+    reference: z.array(z.object({ area: z.string(), status: z.string() })).optional().describe('Reference areas, not scored (propagation, reverseDns, asn): the tool status'),
     actions: z.array(z.string()).optional().describe('Top recommended actions'),
     reportUrl: z.string().describe('Human-facing interactive report on dechonet.com'),
 };
@@ -1142,41 +1143,55 @@ export const tools = [
         title: 'Full Domain Security Scan',
         outputSchema: scanOutputShape,
         annotations: annotate('Full Domain Security Scan'),
-        description: 'One-shot comprehensive audit of a domain: runs DNS, SSL, HTTP headers, email auth, DNS propagation, reverse DNS, and ASN/RDAP checks in parallel, then computes a 0-100 Health Score with an A-F grade and a prioritized action list. ' +
-            "Use this as the default starting point for \"is this domain healthy/secure?\" questions. Call the individual tools (e.g., ssl_check, email_auth) instead when you need depth on one area. " +
-            'BEHAVIOR: passive — public lookups and ordinary HTTPS requests only; open ports are NOT scanned here (that area is left out of the score; port_scan is the separate, active check). Read-only; requires no API key; rate-limited (it makes multiple backend calls). Returns the score, per-area breakdown, top actions, and per-area summaries.',
+        description: 'One-shot comprehensive audit of a domain, scored 0-100 with an A+ to F grade and a prioritized action list. Five scored areas: the web connection (TLS certificate and HTTP security headers, measured on www when only www has an address), mail spoofing defence (SPF/DKIM/DMARC; a domain that uses no mail is judged only on SPF -all and an enforced DMARC policy), domain registration and DNS, exposure (admin screens, developer tools and the like on hosts named in public certificate logs — counts only), and reputation (DechoNet verdict store and licensed phishing feeds). DNS propagation, reverse DNS and ASN are returned as reference information and not scored. ' +
+            'A warning costs a quarter of its area and a critical half; data that could not be read in full is flagged, not charged, and an exposure or reputation lookup that fails is reported as not checked. ' +
+            "Call the individual tools (e.g., ssl_check, email_auth, exposure_map) for depth on one area. " +
+            'BEHAVIOR: passive — public lookups and ordinary HTTPS requests only; open ports are NOT scanned (port_scan is the separate, active check). Takes up to about a minute (the exposure lookup). Read-only; requires no API key; rate-limited (it makes multiple backend calls). Returns the score, per-area breakdown, reference areas, top actions, and per-area summaries.',
         schema: {
             domain: z.string().describe("Domain to audit (e.g., 'example.com'). Scheme and path are stripped."),
         },
         handler: async ({ domain }) => {
             try {
                 const d = enc(domain);
-                const httpTarget = domain.startsWith('http') ? domain : `https://${domain}`;
-                // Passive (10/15): no port scan here — port_scan is the explicit, active tool.
-                const [dns, ssl, http, email, propagation, rdap] = await Promise.allSettled([
-                    callApi(`/api/util/dns?query=${d}`),
-                    callApi(`/api/util/ssl?host=${d}`),
-                    callApi(`/api/util/http?url=${enc(httpTarget)}`),
+                const get = (r) => r.status === 'fulfilled' ? r.value : null;
+                // SYNC: mirrors src/lib/scoring/collect.ts — DNS first: the website is measured on www when only www has
+                // an address. Passive (10/15): no port scan here — port_scan is the explicit, active tool.
+                const hasAddress = (x) => (x?.raw?.records ?? []).some((r) => r.type === 'A' || r.type === 'AAAA' || r.type === 'CNAME');
+                const dns = await callApi(`/api/util/dns?query=${d}`).catch(() => null);
+                let webHost = domain, wwwOnly = false, noWeb = false;
+                if (dns && !hasAddress(dns)) {
+                    const www = await callApi(`/api/util/dns?query=${enc(`www.${domain}`)}`).catch(() => null);
+                    if (hasAddress(www)) {
+                        webHost = `www.${domain}`;
+                        wwwOnly = true;
+                    }
+                    else if (www)
+                        noWeb = true;
+                }
+                const h = enc(webHost);
+                const [ssl, http, email, propagation, rdap, exposure, reputation] = await Promise.allSettled([
+                    noWeb ? Promise.resolve({ na: true }) : callApi(`/api/util/ssl?host=${h}`),
+                    noWeb ? Promise.resolve({ na: true }) : callApi(`/api/util/http?url=${enc(`https://${webHost}`)}`),
                     callApi(`/api/util/email?query=${d}`),
                     callApi(`/api/util/propagation?domain=${d}&type=A`),
                     callApi(`/api/util/rdap?query=${d}`),
+                    callApi(`/api/util/exposure?domain=${d}`),
+                    callApi(`/api/util/reputation?query=${d}`),
                 ]);
-                const get = (r) => r.status === 'fulfilled' ? r.value : null;
                 const results = {
-                    dns: get(dns), ssl: get(ssl), http: get(http), email: get(email),
-                    port: { na: true }, propagation: get(propagation), rdap: get(rdap),
+                    dns, ssl: get(ssl), http: get(http), email: get(email), propagation: get(propagation),
+                    rdap: get(rdap), exposure: get(exposure), reputation: get(reputation),
                 };
-                // Areas that can't apply are left out of the score (SYNC: health.ts healthScore).
-                const na = new Set(['port']); // passive: ports are not scanned here
                 if (rdap.status === 'rejected' && rdap.reason?.reason === 'rdap_no_service')
-                    na.add('rdap');
-                // Extract origin IP for rDNS + ASN
-                const aRecord = results.dns?.raw?.records?.find((r) => r.type === 'A');
+                    results.rdap = { na: true };
+                // Reference: reverse DNS and ASN of the website's first address.
+                const hostDns = wwwOnly ? await callApi(`/api/util/dns?query=${h}`).catch(() => null) : dns;
+                const aRecord = hostDns?.raw?.records?.find((r) => r.type === 'A');
                 if (!aRecord) {
-                    na.add('reverseDns');
-                    na.add('asn');
+                    results.reverseDns = { na: true };
+                    results.asn = { na: true };
                 }
-                if (aRecord) {
+                else {
                     const [rdns, asn] = await Promise.allSettled([
                         callApi(`/api/util/reverse-dns?query=${enc(aRecord.value)}`),
                         callApi(`/api/util/asn?query=${enc(aRecord.value)}`),
@@ -1184,53 +1199,67 @@ export const tools = [
                     results.reverseDns = get(rdns);
                     results.asn = get(asn);
                 }
-                // Calculate health score. SYNC: mirrors src/lib/scoring/health.ts (weights,
-                // 0.4/0.15 per critical/warning, +0.1 when partial, grade cuts 90/80/70/50/40);
+                // Health score v2. SYNC: mirrors src/lib/scoring/health.ts (weights, 0.5/0.25 per critical/warning,
+                // no charge for partial data, exposure/reputation failures not scored, grade cuts 90/80/70/50/40);
                 // tests/unit/mcp-parity.test.ts pins these numbers.
-                const weights = { rdap: 10, dns: 18, ssl: 18, http: 14, email: 14, propagation: 8, port: 8, reverseDns: 5, asn: 5 };
+                const weights = { ssl: 20, http: 15, email: 20, rdap: 8, dns: 12, exposure: 15, reputation: 10 };
+                const softFail = new Set(['exposure', 'reputation']);
+                const tags = { ssl: 'SSL', http: 'HTTP', email: 'EMAIL', rdap: 'RDAP', dns: 'DNS', exposure: 'EXPOSURE', reputation: 'REPUTATION' };
                 let applicable = 0;
                 let lostTotal = 0;
+                let incomplete = false;
                 const areas = [];
+                const actions = [];
                 for (const [key, weight] of Object.entries(weights)) {
                     const r = results[key];
-                    if (na.has(key)) {
-                        areas.push(`${key}: N/A (not scored — ${key === 'rdap' ? 'no RDAP for this TLD' : key === 'port' ? 'passive scan, ports not checked' : 'no A record'})`);
+                    if (r?.na) {
+                        areas.push(`${key}: N/A (not scored — ${key === 'rdap' ? 'no RDAP for this TLD' : 'no website: neither the domain nor www has an address'})`);
+                        continue;
+                    }
+                    if (!r) {
+                        incomplete = true;
+                        if (softFail.has(key)) {
+                            areas.push(`${key}: NOT CHECKED (lookup failed; not scored)`);
+                            continue;
+                        }
+                        applicable += weight;
+                        lostTotal += weight;
+                        areas.push(`${key}: FAILED (-${weight})`);
+                        actions.push({ text: `[${tags[key]}] Lookup failed.`, severity: 0 });
                         continue;
                     }
                     applicable += weight;
-                    if (!r) {
-                        lostTotal += weight;
-                        areas.push(`${key}: FAILED (-${weight})`);
-                        continue;
+                    let issues = r.interpretation?.issues ?? [];
+                    if (key === 'dns') {
+                        if (wwwOnly || noWeb)
+                            issues = issues.map((i) => (i.key === 'dns_no_a' ? { ...i, severity: 'info' } : i));
+                        if (!issues.some((i) => i.key === 'dns_propagation_mismatch'))
+                            issues = [...issues, ...(results.propagation?.interpretation?.issues ?? []).filter((i) => i.key === 'propagation_inconsistent')];
                     }
-                    const interp = r.interpretation;
-                    if (!interp)
-                        continue;
-                    const criticals = interp.issues?.filter((i) => i.severity === 'critical')?.length || 0;
-                    const warnings = interp.issues?.filter((i) => i.severity === 'warning')?.length || 0;
-                    let lost = Math.min(weight, Math.round(weight * 0.4 * criticals + weight * 0.15 * warnings));
-                    if (interp.partial && lost < weight)
-                        lost = Math.min(weight, lost + Math.round(weight * 0.1));
+                    const criticals = issues.filter((i) => i.severity === 'critical').length;
+                    const warnings = issues.filter((i) => i.severity === 'warning').length;
+                    const lost = Math.min(weight, Math.round(weight * 0.5 * criticals + weight * 0.25 * warnings));
                     lostTotal += lost;
-                    const status = lost === 0 ? 'OK' : `ISSUE (-${lost})`;
-                    areas.push(`${key}: ${status}`);
+                    areas.push(`${key}: ${lost === 0 ? `OK (${weight}/${weight})` : `ISSUE (-${lost} of ${weight})`}${r.interpretation?.partial ? ' — partial data' : ''}`);
+                    if (criticals + warnings > 0)
+                        for (const text of r.interpretation?.actionItems ?? [])
+                            actions.push({ text: `[${tags[key]}] ${text}`, severity: criticals ? 0 : 1 });
                 }
                 const score = applicable === 0 ? 0 : Math.max(0, Math.min(100, Math.round((100 * (applicable - lostTotal)) / applicable)));
                 const grade = score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B' : score >= 50 ? 'C' : score >= 40 ? 'D' : 'F';
+                const reference = ['propagation', 'reverseDns', 'asn'].map((k) => { const r = results[k]; return `${k}: ${!r ? 'lookup failed' : r.na ? 'N/A' : r.interpretation?.status ?? 'unknown'}`; });
+                const allActions = actions.sort((a, b) => a.severity - b.severity).map((a) => a.text);
                 const lines = [
                     `=== ${domain} Security Report ===`,
-                    `Health Score: ${score}/100 (Grade ${grade})`,
+                    `Health Score: ${score}/100 (Grade ${grade})${incomplete ? ' — incomplete: a lookup failed' : ''}${wwwOnly ? ` (website measured on ${webHost})` : ''}`,
                     '',
                     'Area Breakdown:',
                     ...areas.map(a => `  ${a}`),
                     '',
+                    'Reference (not scored):',
+                    ...reference.map(a => `  ${a}`),
+                    '',
                 ];
-                // Collect all actions
-                const allActions = [];
-                for (const r of Object.values(results)) {
-                    if (r?.interpretation?.actionItems)
-                        allActions.push(...r.interpretation.actionItems);
-                }
                 if (allActions.length > 0) {
                     lines.push('Priority Actions:');
                     allActions.slice(0, 5).forEach((a, i) => lines.push(`  ${i + 1}. ${a}`));
@@ -1238,7 +1267,7 @@ export const tools = [
                 }
                 lines.push('Individual Results (JSON):');
                 for (const [key, r] of Object.entries(results)) {
-                    if (r) {
+                    if (r && !r.na) {
                         lines.push(`\n--- ${key.toUpperCase()} ---`);
                         lines.push(`Status: ${r.interpretation?.status || 'unknown'}`);
                         if (r.interpretation?.insight?.summary)
@@ -1253,6 +1282,7 @@ export const tools = [
                     structuredContent: {
                         score, grade,
                         areas: areas.map((a) => { const i = a.indexOf(': '); return { area: a.slice(0, i), verdict: a.slice(i + 2) }; }),
+                        reference: reference.map((a) => { const i = a.indexOf(': '); return { area: a.slice(0, i), status: a.slice(i + 2) }; }),
                         ...(allActions.length > 0 ? { actions: allActions.slice(0, 5) } : {}),
                         reportUrl: url,
                     },
@@ -1270,7 +1300,7 @@ export const tools = [
         annotations: annotate('OWASP Security Checkup'),
         description: "Assess a domain's OWASP posture from EXTERNAL OBSERVATION only: the OWASP Secure Headers Project plus the externally observable OWASP Top 10:2025 subset — A04 Cryptographic Failures (TLS/cert), A02 Security Misconfiguration (header/info leaks), and A03 Software Supply Chain Failures (outdated components via version disclosure) — returning an A+ to F grade. " +
             'Scope: A01 (Access Control, incl. SSRF), A05 (Injection), A06 (Insecure Design), A07 (Authentication), A08, A09 and A10 (Exceptional Conditions) are not checked — they need authenticated access or active/injection testing, so the result lists them as out-of-scope rather than "pass". The result is an external-posture check, not a full OWASP Top 10 assessment. ' +
-            'Unlike security_scan this is PASSIVE (a normal HTTPS request, the TLS certificate and a public CT-log lookup; no port scan, no path probing), so it is suitable for domains you do not own. The sensitive-file check (.env, .git, server-status) runs only for the verified domain owner on the web report (DNS TXT), never through this tool. Use http_security or ssl_check for depth on one layer. ' +
+            'This is PASSIVE (a normal HTTPS request, the TLS certificate and a public CT-log lookup; no port scan, no path probing), so it is suitable for domains you do not own. The sensitive-file check (.env, .git, server-status) runs only for the verified domain owner on the web report (DNS TXT), never through this tool. Use http_security or ssl_check for depth on one layer. ' +
             'Read-only; requires no API key; rate-limited. Returns a text report: grade, per-category findings, the out-of-scope list, and a shareable report link.',
         schema: {
             host: z.string().describe("Hostname to assess, without scheme (e.g., 'example.com'). The host portion of a pasted URL is also accepted."),

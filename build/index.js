@@ -6,15 +6,16 @@ const server = new McpServer({
     // SYNC with SERVER_INFO in the monorepo remote handler (lib/mcp/handler.ts).
     name: 'dechonet',
     title: 'DechoNet',
-    version: '1.5.14',
+    version: '1.5.15',
     websiteUrl: 'https://dechonet.com/mcp',
     icons: [{ src: 'https://dechonet.com/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
 }, {
     // SYNC with the `instructions` in the monorepo remote handler (lib/mcp/handler.ts).
-    instructions: 'DechoNet domain-reconnaissance tools: public, read-only checks of domains, URLs and IP addresses (DNS, TLS certificates, HTTP security headers, email authentication, registration data, phishing links, exposure) and the change history DechoNet has observed. No account is needed; an optional DechoNet API key (Authorization: Bearer dn_…) gives a separate rate-limit bucket. Terms of use: https://dechonet.com/terms. ' +
+    instructions: 'DechoNet domain-reconnaissance tools: public, passive checks of domains, URLs and IP addresses (DNS, TLS certificates, HTTP security headers, email authentication, registration data, phishing links, exposure) and the change history DechoNet has observed. No account is needed; an optional DechoNet API key (Authorization: Bearer dn_…) gives a separate rate-limit bucket. Terms of use: https://dechonet.com/terms. ' +
         'Typical flow: security_scan for an overall verdict, then the specific tool for each flagged area (dns_lookup, ssl_check, http_security, email_auth, subdomain_discovery, lookalike_domains, owasp_check, impersonation_exposure). ' +
         'domain_changes reports what changed since DechoNet last looked at a domain (grade drops, new issues, certificate renewals, DNS drift). ' +
-        'watch_domain is the only tool that writes: it registers a domain for daily re-checks, so use it when the user asks to monitor a domain. ' +
+        'A few tools save something (a domain to monitor with watch_domain, expectations to re-check daily, a page report that DechoNet then checks itself); their annotations mark them as not read-only, and every other tool only reads. ' +
+        'check_before_action looks at a page before a login, payment, form submission or download and lists what it did not check. Domain, host and IP lookups carry a signed observation receipt (public keys: https://dechonet.com/.well-known/dechonet-receipts.json). ' +
         'Each result gives a status, key numbers, issues with severity and confidence, recommended fixes and a link to the full report on dechonet.com. Signed-in DechoNet business accounts (DECHONET_SESSION_COOKIE) also see asm_nuclei_start/status/cancel, an active check limited to domains they have verified. ' +
         'Every tool is also a free web tool at https://dechonet.com. The same server is hosted at https://dechonet.com/mcp (Streamable HTTP, no install) with extra prompts and resources.',
 });
