@@ -1005,8 +1005,9 @@ export const tools: ToolDef[] = [
       domain: z.string().describe("Registered domain name to look up (e.g., 'example.com'). A subdomain is normalized to its registrable domain."),
     },
     handler: async ({ domain }) => {
-      try { return formatResult(await callApi(`/api/util/rdap?query=${enc(domain)}`), reportUrl('rdap', 'query', domain)); }
-      catch (e: any) { return errorResult(e.message); }
+      try { return formatResult(await callApi(`/api/util/rdap?whois=1&query=${enc(domain)}`), reportUrl('rdap', 'query', domain)); }
+      // SYNC with the remote registry: a TLD with neither RDAP nor readable WHOIS is an answer, not a failed call (10/18).
+      catch (e: any) { return e?.reason === 'rdap_no_service' ? { content: [{ type: 'text' as const, text: `No registration data: ${e.message}` }] } : errorResult(e.message); }
     },
   },
   {
