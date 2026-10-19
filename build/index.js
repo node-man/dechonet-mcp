@@ -13,7 +13,7 @@ const server = new McpServer({
     // SYNC with SERVER_INFO in the monorepo remote handler (lib/mcp/handler.ts).
     name: 'dechonet',
     title: 'DechoNet',
-    version: '1.6.2',
+    version: '1.6.3',
     websiteUrl: 'https://dechonet.com/mcp',
     icons: [{ src: 'https://dechonet.com/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
 }, {
