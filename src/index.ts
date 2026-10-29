@@ -17,7 +17,7 @@ const server = new McpServer(
     // SYNC with SERVER_INFO in the monorepo remote handler (lib/mcp/handler.ts).
     name: 'dechonet',
     title: 'DechoNet',
-    version: '1.6.3',
+    version: '1.6.4',
     websiteUrl: 'https://dechonet.com/mcp',
     icons: [{ src: 'https://dechonet.com/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
   },
@@ -27,9 +27,11 @@ const server = new McpServer(
       'DechoNet domain-reconnaissance tools: public, passive checks of domains, URLs and IP addresses (DNS, TLS certificates, HTTP security headers, email authentication, registration data, phishing links, exposure) and the change history DechoNet has observed. No account is needed; an optional DechoNet API key (Authorization: Bearer dn_…) gives a separate rate-limit bucket. Terms of use: https://dechonet.com/terms. ' +
       'Typical flow: security_scan for an overall verdict, then the specific tool for each flagged area (dns_lookup, ssl_check, http_security, email_auth, subdomain_discovery, lookalike_domains, owasp_check, impersonation_exposure). ' +
       'domain_changes reports what changed since DechoNet last looked at a domain (grade drops, new issues, certificate renewals, DNS drift). ' +
-      'A few tools save something (a domain to monitor with watch_domain, expectations to re-check daily, a page report that DechoNet then checks itself); their annotations mark them as not read-only, and every other tool only reads. ' +
+      'A few tools save something (a domain to monitor with watch_domain, expectations to re-check daily, a page report, recorded for a later scheduled check by DechoNet); their annotations mark them as not read-only, and every other tool only reads. ' +
       'check_before_action looks at a page before a login, payment, form submission or download and lists what it did not check. Domain, host and IP lookups carry a signed observation receipt (public keys: https://dechonet.com/.well-known/dechonet-receipts.json). ' +
-      'Each result gives a status, key numbers, issues with severity and confidence, recommended fixes and a link to the full report on dechonet.com. Signed-in DechoNet business accounts (DECHONET_SESSION_COOKIE) also see asm_nuclei_start/status/cancel, an active check limited to domains they have verified. ' +
+      'Each result gives a status, key numbers, issues with severity and confidence, recommended fixes and a link to the full report on dechonet.com. ' +
+      // Private tools are named only when they are registered (DECHONET_SESSION_COOKIE) — see PRIVATE_TOOLS below.
+      (process.env.DECHONET_SESSION_COOKIE ? 'This signed-in business account also has asm_nuclei_start/status/cancel, an active check limited to domains it has verified. ' : '') +
       'Every tool is also a free web tool at https://dechonet.com. The same server is hosted at https://dechonet.com/mcp (Streamable HTTP, no install) with extra prompts and resources.',
   },
 );
@@ -39,7 +41,7 @@ const server = new McpServer(
 // structuredContent matching it alongside the text content.
 // SYNC with PRIVATE_TOOLS in the monorepo remote registry: tools that need a signed-in account or case are
 // registered only when DECHONET_SESSION_COOKIE is set, so a plain install lists the public tools.
-const PRIVATE_TOOLS = new Set(['case_kit_search', 'case_kit_observe', 'asm_nuclei_start', 'asm_nuclei_status', 'asm_nuclei_cancel']);
+const PRIVATE_TOOLS = new Set(['case_kit_search', 'case_kit_observe', 'asm_nuclei_start', 'asm_nuclei_status', 'asm_nuclei_cancel', 'asm_vulnerability_assess']);
 const listed = tools.filter((t) => process.env.DECHONET_SESSION_COOKIE || !PRIVATE_TOOLS.has(t.name));
 for (const tool of listed) {
   server.registerTool(

@@ -26,7 +26,7 @@ https://dechonet.com/mcp
 | Claude app / Desktop | Listed in the [Claude connectors directory](https://claude.ai/directory/connectors/dechonet): Customize → Connectors, search DechoNet → Connect. Or + Add → Add custom connector with the URL (Free plan: one custom connector) |
 | ChatGPT | [chatgpt.com/plugins](https://chatgpt.com/plugins) → + → Add custom MCP server → URL under Connection, no authentication → Create as a plugin (work/school accounts need an admin to allow custom MCP servers) |
 | Cursor | `~/.cursor/mcp.json`: `{"mcpServers":{"dechonet":{"url":"https://dechonet.com/mcp"}}}` |
-| VS Code (Copilot agent mode) | `.mcp.json` at the workspace root: `{"mcpServers":{"dechonet":{"type":"http","url":"https://dechonet.com/mcp"}}}` (in `.vscode/mcp.json` the root key is `servers`) |
+| VS Code (Copilot) | Command Palette → **MCP: Add Server** → HTTP → `https://dechonet.com/mcp` → server ID `dechonet` → Global → Copilot Global (`~/.copilot/mcp-config.json`). `.vscode/mcp.json` is deprecated. |
 | Gemini CLI | `gemini mcp add --transport http dechonet https://dechonet.com/mcp` (in `settings.json` use `httpUrl`, not `url`) |
 | Codex | `codex mcp add dechonet --url https://dechonet.com/mcp` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json`: `{"mcpServers":{"dechonet":{"serverUrl":"https://dechonet.com/mcp"}}}` |
@@ -196,8 +196,14 @@ These tools appear only when the server has your DechoNet login: set `DECHONET_S
 
 | Tool | Description |
 |------|-------------|
-| `asm_nuclei_start` | Start a limited active check (Nuclei) on a verified asset from your attack-surface report. Needs current DNS TXT ownership, the exact root URL from that report and `confirm: "asm-nuclei-v1"` |
+| `asm_nuclei_start` | Start a limited active check (Nuclei) on a verified asset from your attack-surface report. Needs current DNS TXT ownership, the exact root URL from that report and `confirm: "asm-nuclei-v2"`. Automatically runs `asm_verify` before creating the job; failed refresh blocks execution |
 | `asm_nuclei_status` | Progress, coverage and sanitized findings. Partial or failed is not a clean result; technology detection is not proof of a vulnerability. Never starts requests |
 | `asm_nuclei_cancel` | Stop new requests and end the job. Requests already sent cannot be recalled |
+
+The v2 scope contains 35 fixed reviewed templates. Limits: 64 requests/120 seconds per execution,
+130 seconds waiting, 280 seconds total job lifetime, global concurrency 1 and 1 request/second.
+All accounts share 1,000 requests per UTC day; the existing account quota also applies. Ownership
+proof lasts 5 minutes and is checked again during execution. A stopped, partial or failed job is
+not a clean result.
 
 **Investigator case spaces** — `case_kit_search` and `case_kit_observe` work only with a case owner session or an existing case access cookie. Search reads stored, case-scoped page fingerprints; observe re-opens a case target under the same render rules and daily cap. Similar screens and kit candidates never confirm a person or a phishing verdict.

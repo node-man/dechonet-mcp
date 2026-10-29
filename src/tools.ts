@@ -11,11 +11,11 @@ interface ApiResponse {
 }
 
 // Optional free API key (account page): own rate-limit bucket; needed for infrastructure_pivot.
-const accountCookie=(path:string):Record<string,string> => /^\/api\/account\/asm\/nuclei-(start|status|cancel)(?:\?|$)/.test(path)&&process.env.DECHONET_SESSION_COOKIE?{Cookie:process.env.DECHONET_SESSION_COOKIE}:{};
+const accountCookie=(path:string):Record<string,string> => /^\/api\/account\/asm\/(?:nuclei-(start|status|cancel)|vulnerability-assessment)(?:\?|$)/.test(path)&&process.env.DECHONET_SESSION_COOKIE?{Cookie:process.env.DECHONET_SESSION_COOKIE}:{};
 const API_KEY = (process.env.DECHONET_API_KEY ?? '').trim();
 /** Read at call time: the command-line mode (cli.ts) sets DECHONET_CLIENT=cli, counted apart from MCP use. */
 const ua = () => (process.env.DECHONET_CLIENT === 'cli' ? 'DechoNet-CLI/1.0' : 'DechoNet-MCP/1.0');
-const caseCookie = (path:string): Record<string,string> => /^\/api\/(?:pilot\/kit-(?:search|observe)|account\/asm\/nuclei-(?:start|status|cancel))(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? {Cookie:process.env.DECHONET_SESSION_COOKIE} : {};
+const caseCookie = (path:string): Record<string,string> => /^\/api\/(?:pilot\/kit-(?:search|observe)|account\/asm\/(?:nuclei-(?:start|status|cancel)|vulnerability-assessment))(?:\?|$)/.test(path) && process.env.DECHONET_SESSION_COOKIE ? {Cookie:process.env.DECHONET_SESSION_COOKIE} : {};
 
 // Observation receipts (2026-10-15): the tool APIs sign each public result and return { tool, id, url }.
 // Collected per tool call (index.ts runs each handler inside receiptScope). SYNC with the remote registry.
@@ -988,7 +988,7 @@ export const tools: ToolDef[] = [
     annotations: annotate('ASN / BGP Lookup'),
     description:
       'Look up Autonomous System (ASN) / BGP information for an IP address or AS number: the network operator, announced prefixes, abuse contact, and a classification (cloud, CDN, ISP, hosting, or enterprise). ' +
-      'Use this to identify who runs a network or whether an IP is cloud/CDN-hosted. Use reverse_dns instead for the host-level PTR name of a single IP. ' +
+      'For an IPv4 address it also reports whether the address is on the Tor Project exit list or in a VPN provider or datacenter range (X4BNet lists_vpn), as information that does not change the result. Use this to identify who runs a network or whether an IP is cloud/CDN-hosted. Use reverse_dns instead for the host-level PTR name of a single IP. ' +
       'Read-only; requires no API key; rate-limited. Returns operator, prefixes, classification, and abuse contact.',
     schema: {
       query: z.string().describe("An IP address (e.g., '1.1.1.1') or an AS number in 'AS####' form (e.g., 'AS13335')."),
@@ -1073,7 +1073,7 @@ export const tools: ToolDef[] = [
     description:
       'Parse raw email headers to reconstruct the delivery path (each Received hop in order), extract SPF/DKIM/DMARC authentication results, measure per-hop delays, and flag unencrypted (non-TLS) hops. ' +
       'Use this to diagnose a specific message that was already delivered — spoofing, delays, or where mail was lost. Use email_auth instead to assess a domain\'s sending configuration before sending. ' +
-      'Read-only; requires no API key; rate-limited. INPUT is the full raw header block. OUTPUT is a text report containing: the ordered hop route, per-mechanism auth results (pass/fail), detected inter-hop delays, and the encryption status of each hop.',
+      'Read-only; requires no API key; rate-limited. INPUT is the full raw header block. OUTPUT is a text report containing: the ordered hop route, per-mechanism auth results (pass/fail), detected inter-hop delays, the encryption status of each hop, and whether the first sending address is on the Tor Project exit list or in a VPN provider range (information only).',
     schema: {
       headers: z.string().describe("The complete raw email header block, copied verbatim — every line from the first 'Received:'/'From:' down to the blank line before the body. Paste as-is, including folded continuation lines; do not include the message body."),
     },
@@ -1205,20 +1205,27 @@ export const tools: ToolDef[] = [
         let applicable = 0;
         let lostTotal = 0;
         let incomplete = false;
+        // Points actually measured (display only). SYNC with healthCoverage in src/lib/scoring/health.ts.
+        let checkedW = 0;
+        let liveW = 0;
+        const notChecked: string[] = [];
         const areas: string[] = [];
         const actions: Array<{ text: string; severity: number }> = [];
         for (const [key, weight] of Object.entries(weights)) {
           // A block page (HTTP 403/429) is a failed lookup. SYNC with src/lib/scoring/health.ts computeHealth.
           const r = results[key]?.interpretation?.blocked ? null : results[key];
           if (r?.na) { areas.push(`${key}: N/A (not scored — ${key === 'rdap' ? 'no RDAP for this TLD' : 'no website: neither the domain nor www has an address'})`); continue; }
+          liveW += weight;
           if (!r) {
             incomplete = true;
+            notChecked.push(key);
             if (softFail.has(key)) { areas.push(`${key}: NOT CHECKED (lookup failed; not scored)`); continue; }
             applicable += weight; lostTotal += weight; areas.push(`${key}: FAILED (-${weight})`);
             actions.push({ text: `[${tags[key]}] Lookup failed.`, severity: 0 });
             continue;
           }
           applicable += weight;
+          checkedW += weight;
           let issues: any[] = r.interpretation?.issues ?? [];
           if (key === 'dns') {
             if (wwwOnly || noWeb) issues = issues.map((i: any) => (i.key === 'dns_no_a' ? { ...i, severity: 'info' } : i));
@@ -1239,6 +1246,7 @@ export const tools: ToolDef[] = [
         const lines = [
           `=== ${domain} Security Report ===`,
           `Health Score: ${score}/100 (Grade ${grade})${incomplete ? ' — incomplete: a lookup failed' : ''}${wwwOnly ? ` (website measured on ${webHost})` : ''}`,
+          `Checked: ${checkedW} of ${liveW} points${notChecked.length ? ` (not checked: ${notChecked.join(', ')})` : ''}`,
           '',
           'Area Breakdown:',
           ...areas.map(a => `  ${a}`),
@@ -1464,11 +1472,11 @@ export const tools: ToolDef[] = [
     name: 'report_page',
     title: 'Report a Page',
     outputSchema: { received: z.boolean(), host: z.string(), kind: z.string() },
-    annotations: { title: 'Report a Page', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    annotations: { title: 'Report a Page', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     description:
       'Report a page to DechoNet: phishing or brand impersonation, a fake payment window (card fields where a payment provider should be), hidden instructions aimed at AI agents, a malicious download, a DechoNet verdict that looks wrong (false_positive) or a danger it missed (missed), an MCP server whose tool descriptions steer agents (malicious_mcp — url is the MCP endpoint), or a network anomaly (network_anomaly — the certificate serial/issuer or addresses you saw for the host, in observed). ' +
       'Kept for 90 days: the host and the kind, with an anonymous reporter hash used to count independent reports; for malicious_mcp the endpoint path, for network_anomaly the observed values and the country of the connection. No query, page text or free text. ' +
-      'A report changes no verdict by itself: DechoNet opens the page itself and only what it observes counts; pages reported by several independent sources are looked at first. Not read-only (it records the report); rate-limited.',
+      'This call only records the report and returns at once; it opens nothing. A report changes no verdict by itself: later, DechoNet\'s own hourly check visits the reported host (an outside site) with the same rules as phishing_link_check (mcp_server_check for malicious_mcp, dns_lookup and ssl_check for network_anomaly), and only what that check observes counts; hosts reported by several independent sources are checked first. Not read-only (it records the report); rate-limited.',
     schema: {
       url: z.string().describe('Address of the page (only its host is kept)'),
       kind: z.enum(['phishing', 'fake_payment', 'hidden_instructions', 'malicious_download', 'false_positive', 'missed', 'malicious_mcp', 'network_anomaly']).describe('What is wrong with the page'),
@@ -1587,9 +1595,9 @@ export const tools: ToolDef[] = [
     handler:async(args)=>{try{const data=await postApi('/api/pilot/kit-observe',{case:args.case,target:args.target});return {content:[{type:'text',text:JSON.stringify(data)}],structuredContent:data};}catch(e:any){return errorResult(e.message);}},
   },
   {
-    name: 'asm_nuclei_start', title: 'Owned ASM Nuclei start', description: "Explicitly start limited active requests to a selected currently verified asset in your owned ASM report. Requires current workspace edit access, ASM plan and current account-bound DNS TXT ownership (legacy public/domain-only proof is insufficient); public API keys grant no account authority. No exploits or arbitrary templates/CLI.",
+    name: 'asm_nuclei_start', title: 'Owned ASM Nuclei start', description: "Explicitly start limited active requests to a selected currently verified asset in your owned ASM report. Requires current workspace edit access, ASM plan and current account-bound DNS TXT ownership (legacy public/domain-only proof is insufficient); public API keys grant no account authority. Start automatically calls asm_verify to refresh account-bound TXT before creating a job; refresh failure blocks execution. Global shared cap: 1,000 requests per UTC day, concurrency 1, 1 request/s; each job has at most 64 requests/120 seconds, queue 130 seconds, lifetime 280 seconds. No exploits or arbitrary templates/CLI.",
     annotations:{title:'Owned ASM Nuclei start',readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:true},
-    outputSchema:{state:z.string()}, schema:{asmId:z.string().describe("Existing owned ASM report id"),target:z.string().describe("Exact selected http80 or https443 root URL"),confirm:z.string().describe("Explicit authorization: asm-nuclei-v1")},
+    outputSchema:{state:z.string()}, schema:{asmId:z.string().describe("Existing owned ASM report id"),target:z.string().describe("Exact selected http80 or https443 root URL"),confirm:z.string().describe("Explicit authorization: asm-nuclei-v2")},
     handler:async ({asmId,target,confirm}:any)=>{try{const data=await postApi('/api/account/asm/nuclei-start', {asmId,target,confirm});return {content:[{type:'text' as const,text:JSON.stringify(data)}],structuredContent:data};}catch(e:any){return errorResult(e.message);}},
   },
   {
@@ -1603,6 +1611,13 @@ export const tools: ToolDef[] = [
     annotations:{title:'Owned ASM Nuclei cancel',readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},
     outputSchema:{state:z.string()}, schema:{id:z.string().describe("Current workspace owned Nuclei job id")},
     handler:async ({id}:any)=>{try{const data=await postApi('/api/account/asm/nuclei-cancel', {id});return {content:[{type:'text' as const,text:JSON.stringify(data)}],structuredContent:data};}catch(e:any){return errorResult(e.message);}},
+  },
+  {
+    name: 'asm_vulnerability_assess', title: 'Owned ASM vulnerability evidence', description: 'Compare existing owned ASM runtime observations and optional unverified local runtime JSON against PHP and Node.js advisories. Requires current account session, ASM plan, workspace view access and current account-bound ownership. No new probes or storage. Collector reports must retain scope: local_cli; they are reference-only and do not establish the serving runtime. Optional baselineAsmId compares two completed, ordered runs of the same owned domain and host using ASM observations only; a changed or missing version does not prove remediation. Returns possible or unknown; customer claims cannot confirm a patch, mitigation or unreachable path.',
+    annotations:{title:'Owned ASM vulnerability evidence',readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+    outputSchema:{results:z.array(z.record(z.unknown())),reportStored:z.boolean(),comparison:z.record(z.unknown()).optional()},
+    schema:{asmId:z.string().describe('Existing owned ASM report id'),host:z.string().describe('Exact host already present in the ASM report'),baselineAsmId:z.string().optional().describe('Earlier completed ASM report id for the same account, domain and host'),report:z.record(z.unknown()).optional().describe('Optional self-report: runtime php/node, observedAt ISO UTC, optional version, packageBuild, artifactSha256, platform, uploadProgress, serializeHandler, handlerSwitchBeforeSessionStart, attackerControlledInput, decoderReached. No secrets or trust flags.')},
+    handler:async ({asmId,host,baselineAsmId,report}:any)=>{try{const data=await postApi('/api/account/asm/vulnerability-assessment',{asmId,host,...(baselineAsmId===undefined?{}:{baselineAsmId}),...(report===undefined?{}:{report})});return {content:[{type:'text' as const,text:JSON.stringify(data)}],structuredContent:data};}catch(e:any){return errorResult(e.message);}},
   },
 ];
 
