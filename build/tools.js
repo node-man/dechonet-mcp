@@ -54,6 +54,10 @@ async function postApi(path, payload) {
 // instantly. src=mcp-report attributes those visits separately from both
 // 'mcp' (agent calls) and organic web. Always points at the public site,
 // even when DECHONET_URL targets a dev backend — the report is for humans.
+/** Crypto mode pages (10/30): https://dechonet.com/crypto/<page>?query=… */
+function cryptoReportUrl(page, value) {
+    return `https://dechonet.com/crypto/${page}?query=${encodeURIComponent(String(value))}&src=mcp-report`;
+}
 function reportUrl(page, param, value) {
     const base = `https://dechonet.com/util/${page}`;
     return param && value !== undefined && value !== null
@@ -325,6 +329,12 @@ function formatResult(data, url) {
             for (const a of interp.actionItems) {
                 lines.push(`  - ${a}`);
             }
+            lines.push('');
+        }
+        if (interp.unchecked?.length) {
+            lines.push('Not checked:');
+            for (const u of interp.unchecked)
+                lines.push(`  - ${u}`);
             lines.push('');
         }
         if (interp.unchecked?.length) {
@@ -831,6 +841,27 @@ function formatPrecheck(d) {
         content: [{ type: 'text', text: lines.join('\n') }],
         structuredContent: { host: String(d?.host ?? ''), verdict: String(d?.verdict ?? ''), signals, unchecked: d?.unchecked ?? [], ageDays: d?.ageDays ?? null, paymentProvider: d?.paymentProvider ?? null, ...(d?.receipt ? { receipts: [d.receipt] } : {}) },
     };
+}
+// Before signing or sending (2026-10-29, crypto stage 4; public 10/30). SYNC with the remote registry.
+const presignOutputShape = {
+    verdict: z.enum(['danger', 'suspicious', 'no_signals']).describe('danger: a check found a danger sign; suspicious: a warning sign; no_signals: none of the checks found one — not a statement that the transaction is harmless (see unchecked)'),
+    signals: z.array(z.object({ key: z.string(), severity: z.enum(['critical', 'warning', 'info']), part: z.enum(['address', 'page', 'request']) })),
+    request: z.object({ method: z.string(), kind: z.string(), allows: z.string(), drain: z.boolean() }).nullable().optional().describe('What approving the request would allow'),
+    unchecked: z.array(z.string()),
+};
+function formatPresign(d) {
+    const it = d?.interpretation ?? {};
+    const signals = Array.isArray(it.signals) ? it.signals : [];
+    const lines = [
+        '=== Check before signing or sending ===',
+        `Verdict: ${String(it.verdict ?? 'unknown').toUpperCase()} — ${it.summary ?? ''}`,
+        ...(d?.address ? [`Address: ${d.address.chain}${d.address.sanctioned ? ' · ON THE OFAC SANCTIONS LIST' : ''}${d.address.pagesShowing ? ` · shown on ${d.address.pagesShowing} page(s) DechoNet judged` : ''}`] : []),
+        ...(d?.page ? [`Page: ${d.page.host} · phishing check ${d.page.phishingVerdict ?? 'n/a'}${d.page.official ? ` · official (${d.page.official})` : ''}`] : []),
+        ...(it.request ? [`Request: ${it.request.method} → ${it.request.kind}${it.request.allows ? ` — ${it.request.allows}` : ''}`] : []),
+        ...signals.map((x) => `  [${x.severity}] ${x.key} (${x.part})`),
+        `Not checked: ${(it.unchecked ?? []).join(', ') || 'none'}`,
+    ];
+    return { content: [{ type: 'text', text: lines.join('\n') }], structuredContent: { verdict: String(it.verdict ?? ''), signals, request: it.request ?? null, unchecked: it.unchecked ?? [] } };
 }
 export const tools = [
     {
@@ -1522,6 +1553,65 @@ export const tools = [
         handler: async ({ url, action, expectedBrand, page }) => {
             try {
                 return formatPrecheck(await postApi('/api/precheck', { url, action, ...(expectedBrand ? { expectedBrand } : {}), ...(page ? { page } : {}) }));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'crypto_check_before_sign',
+        title: 'Check Before Signing or Sending (Crypto)',
+        outputSchema: presignOutputShape,
+        annotations: annotate('Check Before Signing or Sending (Crypto)'),
+        description: 'Before an agent signs or sends from a crypto wallet: send the destination address (to), the page that asked (url) and/or the wallet request it is about to approve (request: the EIP-1193 method and params). ' +
+            'The address is checked for its chain and checksum, the US Treasury OFAC sanctions list, and pages DechoNet judged dangerous that showed it; the page goes through the phishing link check and the official exchange, wallet and dApp list; the request is read for what approving it would allow (unlimited token approval, approval for a whole NFT collection, Permit/Permit2 signatures, Seaport orders, raw eth_sign, transfers). ' +
+            "Verdicts: danger, suspicious, no_signals. no_signals means none of the checks found a warning sign and is not a statement that the transaction is harmless; 'unchecked' lists what was not looked at (balances, token contracts, simulation). Nothing sent is stored. Rate-limited.",
+        schema: {
+            to: z.string().optional().describe('Destination wallet address (0x…, T…, bc1…, Solana)'),
+            url: z.string().optional().describe('Address of the page that asked for the signature or transfer (https://…)'),
+            request: z.object({ method: z.string().describe("EIP-1193 method, e.g. 'eth_sendTransaction', 'eth_signTypedData_v4'"), params: z.array(z.any()).optional().describe('Its params, as the page sent them') }).optional().describe('The wallet request about to be approved'),
+        },
+        handler: async ({ to, url, request }) => {
+            if (!to && !url && !request)
+                return errorResult('Provide at least one of: to, url, request.');
+            try {
+                return formatPresign(await postApi('/api/util/crypto-presign', { ...(to ? { to } : {}), ...(url ? { url } : {}), ...(request ? { request } : {}) }));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'wallet_address_check',
+        title: 'Wallet Address Check',
+        outputSchema: interpOutputShape,
+        annotations: annotate('Wallet Address Check'),
+        description: 'Check one crypto wallet address: which chain it belongs to (EVM, TRON, Bitcoin, Solana — from the format alone), whether its checksum is valid (EIP-55, Base58Check, bech32/bech32m), whether it is on the US Treasury OFAC SDN sanctions list (read daily), and how many pages DechoNet\'s phishing check judged dangerous showed it. ' +
+            "Listed means on that day's list, not a finding about the owner; not listed is not a statement that the address is clean (most scam addresses are on no list). Balances, transaction history and the owner are not looked at — see 'Not checked'. The address is not stored. " +
+            'Use crypto_check_before_sign to judge an address together with the page that asked and the wallet request. Read-only; no API key; rate-limited.',
+        schema: { address: z.string().describe('Wallet address (0x…, T…, bc1…/1…/3…, or a Solana address)') },
+        handler: async ({ address }) => {
+            try {
+                return formatResult(await callApi(`/api/util/crypto-address?query=${enc(address)}`), cryptoReportUrl('address', address));
+            }
+            catch (e) {
+                return errorResult(e.message);
+            }
+        },
+    },
+    {
+        name: 'crypto_exchange_check',
+        title: 'Official Crypto Exchange Address Check',
+        outputSchema: interpOutputShape,
+        annotations: annotate('Official Crypto Exchange Address Check'),
+        description: 'Check whether a domain or link is the official address of a crypto exchange, wallet or dApp — Korean exchanges (Upbit, Bithumb, Coinone, GOPAX, DigitalX/Korbit) and major global exchanges, wallets and dApps — compared with the addresses the companies publish themselves (the Korean exchanges\' council member list, app store developer websites, verified GitHub organisations). ' +
+            'Verdicts: official, danger (not official and the phishing check found impersonation evidence), not_official (uses a name but is not an official address — the name alone is not impersonation), not_exchange. A domain that uses a name also gets its registration date, the first certificate DechoNet saw for it, and a phishing check of its front page (which may render it). Read-only; no API key; rate-limited.',
+        schema: { domain: z.string().describe("Domain or link to check (e.g. 'upbit-event.example' or 'https://…')") },
+        handler: async ({ domain }) => {
+            try {
+                return formatResult(await callApi(`/api/util/crypto-exchange?query=${enc(domain)}`), cryptoReportUrl('exchange', domain));
             }
             catch (e) {
                 return errorResult(e.message);

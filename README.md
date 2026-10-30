@@ -6,7 +6,7 @@
 
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-**30 tools. No API key needed for non-commercial use.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **MCP server checks** before you connect one, **domain change history** — what changed since the last check — **infrastructure history and pivots** (past nameservers/IPs/issuers, and other domains seen on the same rare infrastructure), and a daily **watch** you can set from the agent.
+**33 tools. No API key needed for non-commercial use.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **MCP server checks** before you connect one, **domain change history** — what changed since the last check — **infrastructure history and pivots** (past nameservers/IPs/issuers, and other domains seen on the same rare infrastructure), a daily **watch** you can set from the agent, and **crypto checks** — a wallet address's chain and OFAC sanctions listing, whether a site is an exchange's official address, and a check before an agent signs or sends.
 
 Every result comes back interpreted, not just as raw JSON: a status, the key numbers, each issue with severity and confidence, and the concrete action to take. That is what an agent needs to tell a human what to do next.
 
@@ -108,6 +108,9 @@ Checks: `dns`, `ssl`, `http`, `email`, `port`, `propagation`, `rdns`, `asn`, `wh
 | `check_before_action` | Before logging in, paying, downloading or submitting: whether the page impersonates a brand, how new the domain is, whether it was flagged before, and — when the caller reports the page structure as host names — whether the card fields sit with a known payment provider. Answers danger / suspicious / unreachable / official / no_signals, with what was not checked; never 'safe' |
 | `report_page` | Report a page (phishing, fake payment window, hidden instructions for AI agents, malicious download, or a verdict that looks wrong), an MCP server whose tool descriptions steer agents, or a network anomaly (the certificate or addresses you saw differ). Only the host and kind are kept; a report changes no verdict by itself — DechoNet checks the page itself, independent reports first |
 | `verify_expectations` | Check a stored set (by id) or a one-off list from outside now — after a change, to see whether it is visible yet |
+| `wallet_address_check` | **Crypto wallet address**: chain from the format (EVM, TRON, Bitcoin, Solana), checksum, the US Treasury OFAC SDN sanctions list (read daily) and how many pages DechoNet judged dangerous showed it. Not listed is not 'clean'; the address is not stored |
+| `crypto_exchange_check` | Is a domain the **official address** of a Korean or global exchange, wallet or dApp — compared only with addresses the companies publish themselves; a domain that only uses the name gets its age, first certificate and a phishing check |
+| `crypto_check_before_sign` | **Before an agent signs or sends**: the destination address, the page that asked and the wallet request (unlimited approvals, Permit signatures, setApprovalForAll) judged together — danger / suspicious / no_signals, with what was not checked |
 | `ip_info` | Public IP, ISP, ASN, proxy detection |
 | `email_header_analysis` | Email delivery route tracing + auth results |
 | `subnet_calc` | CIDR subnet calculator (offline) |
@@ -190,7 +193,7 @@ MIT licensed. Issues and PRs welcome.
 
 ## Signed-in tools
 
-These tools appear only when the server has your DechoNet login: set `DECHONET_SESSION_COOKIE` to your own current cookie as it is sent, e.g. `dn_acct=…` (or `dn_acct=…; dn_ws=…` when you work in an agency workspace). Treat it like a password. It is sent only to the exact private endpoints below, never to the public diagnostics, and a public API key does not stand in for it. Without it the server lists the 30 public tools.
+These tools appear only when the server has your DechoNet login: set `DECHONET_SESSION_COOKIE` to your own current cookie as it is sent, e.g. `dn_acct=…` (or `dn_acct=…; dn_ws=…` when you work in an agency workspace). Treat it like a password. It is sent only to the exact private endpoints below, never to the public diagnostics, and a public API key does not stand in for it. Without it the server lists the 33 public tools.
 
 **Business plan — active checks on domains you own** ([plans](https://dechonet.com/pro))
 

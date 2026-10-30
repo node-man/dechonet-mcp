@@ -13,7 +13,7 @@ const server = new McpServer({
     // SYNC with SERVER_INFO in the monorepo remote handler (lib/mcp/handler.ts).
     name: 'dechonet',
     title: 'DechoNet',
-    version: '1.6.4',
+    version: '1.7.0',
     websiteUrl: 'https://dechonet.com/mcp',
     icons: [{ src: 'https://dechonet.com/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }],
 }, {
@@ -34,7 +34,10 @@ const server = new McpServer({
 // SYNC with PRIVATE_TOOLS in the monorepo remote registry: tools that need a signed-in account or case are
 // registered only when DECHONET_SESSION_COOKIE is set, so a plain install lists the public tools.
 const PRIVATE_TOOLS = new Set(['case_kit_search', 'case_kit_observe', 'asm_nuclei_start', 'asm_nuclei_status', 'asm_nuclei_cancel', 'asm_vulnerability_assess']);
-const listed = tools.filter((t) => process.env.DECHONET_SESSION_COOKIE || !PRIVATE_TOOLS.has(t.name));
+// SYNC with PREVIEW_TOOLS in the remote registry: crypto-mode tools whose API answers only in DechoNet's preview builds
+// (empty since the 10/30 public release).
+const PREVIEW_TOOLS = new Set([]);
+const listed = tools.filter((t) => (process.env.DECHONET_SESSION_COOKIE || !PRIVATE_TOOLS.has(t.name)) && (process.env.DECHONET_PREVIEW_TOOLS === '1' || !PREVIEW_TOOLS.has(t.name)));
 for (const tool of listed) {
     server.registerTool(tool.name, {
         title: tool.title,
