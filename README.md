@@ -29,7 +29,7 @@ https://dechonet.com/mcp
 | VS Code (Copilot) | Command Palette → **MCP: Add Server** → HTTP → `https://dechonet.com/mcp` → server ID `dechonet` → Global → Copilot Global (`~/.copilot/mcp-config.json`). `.vscode/mcp.json` is deprecated. |
 | Gemini CLI | `gemini mcp add --transport http dechonet https://dechonet.com/mcp` (in `settings.json` use `httpUrl`, not `url`) |
 | Codex | `codex mcp add dechonet --url https://dechonet.com/mcp` |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json`: `{"mcpServers":{"dechonet":{"serverUrl":"https://dechonet.com/mcp"}}}` |
+| Devin Desktop / CLI (formerly Windsurf) | `devin mcp add -s user dechonet https://dechonet.com/mcp` (saved to `~/.config/devin/mcp_config.json` as `mcpServers.dechonet.url`) |
 | Any stdio-only client | npm package — see Quick Start below |
 
 Step-by-step for each client: [dechonet.com/mcp](https://dechonet.com/mcp). The remote endpoint also serves 3 curated prompts (`audit_domain`, `monitor_setup`, `investigate_changes`) and 2 reference resources.

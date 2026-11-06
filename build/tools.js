@@ -684,6 +684,8 @@ const PHISHING_SIGNAL = {
     brand_redirect_cloak: (d) => `address dressed up as ${d ?? 'a brand'} that redirects to another company's official site (cloaking)`,
     page_brand_lure: (d) => `page title uses brand ${d ?? ''} with a lure word (appeal, verify, account …) on free hosting`,
     host_flagged: (d) => `the host/CDN (${d ?? ''}) already replaced the page with its phishing/abuse block screen`,
+    fake_host_block: (d) => `a copy of the ${d ?? 'provider'} block screen served from outside that provider (a phishing site pretending to be taken down)`,
+    host_block_claimed: () => 'the page says it was suspended for phishing or abuse; who blocked it cannot be confirmed',
     exfil_endpoint: (d) => `page code sends typed input to a messenger bot or relay (${d ?? ''})`,
     login_hidden_path: () => 'sign-in form served from a hidden system folder (/.well-known/, file-manager plugin) — a kit on a hacked site',
     compromised_path: (_d) => `login screen inside WordPress file folders of a hacked ordinary site`,
@@ -703,6 +705,7 @@ const PHISHING_SIGNAL = {
     shortener: () => 'shortened link (real destination was hidden)',
     popular_site: () => "one of Korea's most visited sites (Chrome UX Report, CC BY 4.0); name-only signals are not counted as warnings",
     open_kit_directory: () => 'an open folder listing archives and PHP files (how phishing kits are uploaded)',
+    device_code_lure: (d) => `a short page off the provider's domain that shows a sign-in code to enter at ${d ?? 'its device sign-in address'} (device-code phishing)`,
     brand_download_lure: (d) => `a short page naming ${d ?? 'a brand'} that asks for a download or install, off that brand's domain`,
     brand_country_domain: (d) => `a brand's exact name under another country's domain, under a year old or serving a kit (the brand's own: ${d ?? ''})`,
     phish_kit: (d) => `page carries the markup of a known phishing kit (${d ?? ''}; rule from phish.report/IOK)`,
@@ -855,7 +858,7 @@ function formatPresign(d) {
     const lines = [
         '=== Check before signing or sending ===',
         `Verdict: ${String(it.verdict ?? 'unknown').toUpperCase()} — ${it.summary ?? ''}`,
-        ...(d?.address ? [`Address: ${d.address.chain}${d.address.sanctioned ? ' · ON THE OFAC SANCTIONS LIST' : ''}${d.address.pagesShowing ? ` · shown on ${d.address.pagesShowing} page(s) DechoNet judged` : ''}`] : []),
+        ...(d?.address ? [`Address: ${d.address.chain}${d.address.sanctioned ? ' · ON THE OFAC SANCTIONS LIST' : ''}${d.address.fbi ? ' · PUBLISHED IN AN FBI ALERT' : ''}${d.address.pagesShowing ? ` · shown on ${d.address.pagesShowing} page(s) DechoNet judged` : ''}`] : []),
         ...(d?.page ? [`Page: ${d.page.host} · phishing check ${d.page.phishingVerdict ?? 'n/a'}${d.page.official ? ` · official (${d.page.official})` : ''}`] : []),
         ...(it.request ? [`Request: ${it.request.method} → ${it.request.kind}${it.request.allows ? ` — ${it.request.allows}` : ''}`] : []),
         ...signals.map((x) => `  [${x.severity}] ${x.key} (${x.part})`),
@@ -1013,7 +1016,7 @@ export const tools = [
         outputSchema: interpOutputShape,
         annotations: annotate('ASN / BGP Lookup'),
         description: 'Look up Autonomous System (ASN) / BGP information for an IP address or AS number: the network operator, announced prefixes, abuse contact, and a classification (cloud, CDN, ISP, hosting, or enterprise). ' +
-            'For an IPv4 address it also reports whether the address is on the Tor Project exit list or in a VPN provider or datacenter range (X4BNet lists_vpn), as information that does not change the result. Use this to identify who runs a network or whether an IP is cloud/CDN-hosted. Use reverse_dns instead for the host-level PTR name of a single IP. ' +
+            'For an IPv4 address it also reports whether the address is on the Tor Project exit list, as information that does not change the result. Use this to identify who runs a network or whether an IP is cloud/CDN-hosted. Use reverse_dns instead for the host-level PTR name of a single IP. ' +
             'Read-only; requires no API key; rate-limited. Returns operator, prefixes, classification, and abuse contact.',
         schema: {
             query: z.string().describe("An IP address (e.g., '1.1.1.1') or an AS number in 'AS####' form (e.g., 'AS13335')."),
@@ -1565,7 +1568,7 @@ export const tools = [
         outputSchema: presignOutputShape,
         annotations: annotate('Check Before Signing or Sending (Crypto)'),
         description: 'Before an agent signs or sends from a crypto wallet: send the destination address (to), the page that asked (url) and/or the wallet request it is about to approve (request: the EIP-1193 method and params). ' +
-            'The address is checked for its chain and checksum, the US Treasury OFAC sanctions list, and pages DechoNet judged dangerous that showed it; the page goes through the phishing link check and the official exchange, wallet and dApp list; the request is read for what approving it would allow (unlimited token approval, approval for a whole NFT collection, Permit/Permit2 signatures, Seaport orders, raw eth_sign, transfers). ' +
+            'The address is checked for its chain and checksum, the US Treasury OFAC sanctions list, the addresses the FBI published in its alerts, and pages DechoNet judged dangerous that showed it; the page goes through the phishing link check and the official exchange, wallet and dApp list; the request is read for what approving it would allow (unlimited token approval, approval for a whole NFT collection, Permit/Permit2 signatures, Seaport orders, raw eth_sign, transfers). ' +
             "Verdicts: danger, suspicious, no_signals. no_signals means none of the checks found a warning sign and is not a statement that the transaction is harmless; 'unchecked' lists what was not looked at (balances, token contracts, simulation). Nothing sent is stored. Rate-limited.",
         schema: {
             to: z.string().optional().describe('Destination wallet address (0x…, T…, bc1…, Solana)'),
@@ -1588,7 +1591,7 @@ export const tools = [
         title: 'Wallet Address Check',
         outputSchema: interpOutputShape,
         annotations: annotate('Wallet Address Check'),
-        description: 'Check one crypto wallet address: which chain it belongs to (EVM, TRON, Bitcoin, Solana — from the format alone), whether its checksum is valid (EIP-55, Base58Check, bech32/bech32m), whether it is on the US Treasury OFAC SDN sanctions list (read daily), and how many pages DechoNet\'s phishing check judged dangerous showed it. ' +
+        description: 'Check one crypto wallet address: which chain it belongs to (EVM, TRON, Bitcoin, Solana — from the format alone), whether its checksum is valid (EIP-55, Base58Check, bech32/bech32m), whether it is on the US Treasury OFAC SDN sanctions list (read daily) or among the addresses the FBI published in an alert (the Binance theft of October 2026, 628 addresses), and how many pages DechoNet\'s phishing check judged dangerous showed it. ' +
             "Listed means on that day's list, not a finding about the owner; not listed is not a statement that the address is clean (most scam addresses are on no list). Balances, transaction history and the owner are not looked at — see 'Not checked'. The address is not stored. " +
             'Use crypto_check_before_sign to judge an address together with the page that asked and the wallet request. Read-only; no API key; rate-limited.',
         schema: { address: z.string().describe('Wallet address (0x…, T…, bc1…/1…/3…, or a Solana address)') },
