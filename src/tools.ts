@@ -402,6 +402,9 @@ function formatResult(data: any, url?: string): { content: Array<{ type: 'text';
   return result;
 }
 
+// whois_lookup: API error reasons that are answers about the domain or its TLD, not failed calls (SYNC remote/npm).
+const WHOIS_ANSWERS: Record<string, string> = { rdap_no_service: 'No registration data', rdap_not_registered: 'Not registered' };
+
 function errorResult(msg: string) {
   return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true as const };
 }
@@ -884,13 +887,41 @@ function formatPresign(d: any) {
   const lines = [
     '=== Check before signing or sending ===',
     `Verdict: ${String(it.verdict ?? 'unknown').toUpperCase()} — ${it.summary ?? ''}`,
-    ...(d?.address ? [`Address: ${d.address.chain}${d.address.sanctioned ? ' · ON THE OFAC SANCTIONS LIST' : ''}${d.address.fbi ? ' · PUBLISHED IN AN FBI ALERT' : ''}${d.address.pagesShowing ? ` · shown on ${d.address.pagesShowing} page(s) DechoNet judged` : ''}`] : []),
+    ...(d?.address ? [`Address: ${d.address.chain}${d.address.sanctioned ? ' · ON THE OFAC SANCTIONS LIST' : ''}${d.address.fbi ? ' · PUBLISHED IN AN FBI ALERT' : ''}${d.address.usdtFrozen ? ' · USDT FROZEN BY TETHER' : ''}${d.address.pagesShowing ? ` · shown on ${d.address.pagesShowing} page(s) DechoNet judged` : ''}`] : []),
     ...(d?.page ? [`Page: ${d.page.host} · phishing check ${d.page.phishingVerdict ?? 'n/a'}${d.page.official ? ` · official (${d.page.official})` : ''}`] : []),
     ...(it.request ? [`Request: ${it.request.method} → ${it.request.kind}${it.request.allows ? ` — ${it.request.allows}` : ''}`] : []),
     ...signals.map((x) => `  [${x.severity}] ${x.key} (${x.part})`),
     `Not checked: ${(it.unchecked ?? []).join(', ') || 'none'}`,
   ];
   return { content: [{ type: 'text' as const, text: lines.join('\n') }], structuredContent: { verdict: String(it.verdict ?? ''), signals, request: it.request ?? null, unchecked: it.unchecked ?? [] } };
+}
+
+// dApp & link check (MCP 2026-11-08). SYNC with the remote registry.
+const dappOutputShape = {
+  verdict: z.enum(['danger', 'suspicious', 'official', 'no_signals', 'unreachable']).describe('no_signals: none of the checks saw a warning sign — not a statement that the page is harmless (see unchecked)'),
+  host: z.string().optional().describe('The host the page ended on'),
+  phishingVerdict: z.string().nullable().optional().describe('The phishing link check verdict for the same link'),
+  requests: z.array(z.object({ method: z.string(), kind: z.string(), allows: z.string().optional(), drain: z.boolean().optional() })).describe('Wallet requests the page made, in order'),
+  signals: z.array(z.object({ key: z.string(), severity: z.string() })),
+  rendered: z.boolean().describe('False when the page could not be opened with the test wallet (then little was seen)'),
+  unchecked: z.array(z.string()),
+};
+function formatDapp(d: any) {
+  const it = d?.interpretation ?? {}, raw = d?.raw ?? {};
+  const requests = (Array.isArray(it.requests) ? it.requests : []).map((r: any) => ({ method: String(r.method ?? ''), kind: String(r.kind ?? ''), allows: String(r.allows ?? ''), drain: !!r.drain }));
+  const signals = (Array.isArray(it.issues) ? it.issues : []).map((x: any) => ({ key: String(x.key), severity: String(x.severity) }));
+  const lines = [
+    '=== dApp & link check ===',
+    `Verdict: ${String(it.verdict ?? 'unknown').toUpperCase()} — ${it.insight?.summary ?? it.title ?? ''}`,
+    `Page: ${raw.finalHost ?? 'n/a'} · phishing check ${raw.verdict ?? 'n/a'}${raw.official ? ` · official (${raw.official})` : ''}${it.partial ? ' · not opened with the test wallet' : ''}`,
+    requests.length ? 'Wallet requests:' : 'Wallet requests: none seen',
+    ...requests.map((r: any) => `  ${r.method} → ${r.kind}${r.allows ? ` — ${r.allows}` : ''}${r.drain ? ' [can move assets]' : ''}`),
+    ...(signals.length ? ['Signals:', ...signals.map((x: any) => `  [${x.severity}] ${x.key}`)] : []),
+    `Not checked: ${(it.unchecked ?? []).join(' · ') || 'none'}`,
+    '',
+    `Report page: https://dechonet.com/crypto/dapp?src=mcp-report`,
+  ];
+  return { content: [{ type: 'text' as const, text: lines.join('\n') }], structuredContent: { verdict: String(it.verdict ?? ''), host: raw.finalHost ?? '', phishingVerdict: raw.verdict ?? null, requests, signals, rendered: !it.partial, unchecked: it.unchecked ?? [] } };
 }
 
 export const tools: ToolDef[] = [
@@ -1047,8 +1078,9 @@ export const tools: ToolDef[] = [
     },
     handler: async ({ domain }) => {
       try { return formatResult(await callApi(`/api/util/rdap?whois=1&query=${enc(domain)}`), reportUrl('rdap', 'query', domain)); }
-      // SYNC with the remote registry: a TLD with neither RDAP nor readable WHOIS is an answer, not a failed call (10/18).
-      catch (e: any) { return e?.reason === 'rdap_no_service' ? { content: [{ type: 'text' as const, text: `No registration data: ${e.message}` }] } : errorResult(e.message); }
+      // SYNC with the remote registry: a TLD with neither RDAP nor readable WHOIS (10/18) or a domain the registry has
+      // no record of (11/14) is an answer, not a failed call.
+      catch (e: any) { return WHOIS_ANSWERS[e?.reason] ? { content: [{ type: 'text' as const, text: `${WHOIS_ANSWERS[e.reason]}: ${e.message}` }] } : errorResult(e.message); }
     },
   },
   {
@@ -1510,7 +1542,7 @@ export const tools: ToolDef[] = [
     annotations: annotate('Check Before Signing or Sending (Crypto)'),
     description:
       'Before an agent signs or sends from a crypto wallet: send the destination address (to), the page that asked (url) and/or the wallet request it is about to approve (request: the EIP-1193 method and params). ' +
-      'The address is checked for its chain and checksum, the US Treasury OFAC sanctions list, the addresses the FBI published in its alerts, and pages DechoNet judged dangerous that showed it; the page goes through the phishing link check and the official exchange, wallet and dApp list; the request is read for what approving it would allow (unlimited token approval, approval for a whole NFT collection, Permit/Permit2 signatures, Seaport orders, raw eth_sign, transfers). ' +
+      'The address is checked for its chain and checksum, the US Treasury OFAC sanctions list, the addresses the FBI published in its alerts, whether Tether froze USDT at it, and pages DechoNet judged dangerous that showed it; the page goes through the phishing link check and the official exchange, wallet and dApp list; the request is read for what approving it would allow (unlimited token approval, approval for a whole NFT collection, Permit/Permit2 signatures, Seaport orders, raw eth_sign, transfers). ' +
       "Verdicts: danger, suspicious, no_signals. no_signals means none of the checks found a warning sign and is not a statement that the transaction is harmless; 'unchecked' lists what was not looked at (balances, token contracts, simulation). Nothing sent is stored. Rate-limited.",
     schema: {
       to: z.string().optional().describe('Destination wallet address (0x…, T…, bc1…, Solana)'),
@@ -1529,12 +1561,28 @@ export const tools: ToolDef[] = [
     outputSchema: interpOutputShape,
     annotations: annotate('Wallet Address Check'),
     description:
-      'Check one crypto wallet address: which chain it belongs to (EVM, TRON, Bitcoin, Solana — from the format alone), whether its checksum is valid (EIP-55, Base58Check, bech32/bech32m), whether it is on the US Treasury OFAC SDN sanctions list (read daily) or among the addresses the FBI published in an alert (the Binance theft of October 2026, 628 addresses), and how many pages DechoNet\'s phishing check judged dangerous showed it. ' +
+      'Check one crypto wallet address: which chain it belongs to (EVM, TRON, Bitcoin, Solana — from the format alone), whether its checksum is valid (EIP-55, Base58Check, bech32/bech32m), whether it is on the US Treasury OFAC SDN sanctions list (read daily) or among the addresses the FBI published in an alert (the Binance theft of October 2026, 628 addresses), whether Tether has frozen USDT at it (Ethereum and TRON addresses, read from the USDT contract), and how many pages DechoNet\'s phishing check judged dangerous showed it. ' +
       "Listed means on that day's list, not a finding about the owner; not listed is not a statement that the address is clean (most scam addresses are on no list). Balances, transaction history and the owner are not looked at — see 'Not checked'. The address is not stored. " +
       'Use crypto_check_before_sign to judge an address together with the page that asked and the wallet request. Read-only; no API key; rate-limited.',
     schema: { address: z.string().describe('Wallet address (0x…, T…, bc1…/1…/3…, or a Solana address)') },
     handler: async ({ address }) => {
       try { return formatResult(await callApi(`/api/util/crypto-address?query=${enc(address)}`), cryptoReportUrl('address', address)); }
+      catch (e: any) { return errorResult(e.message); }
+    },
+  },
+  {
+    name: 'crypto_dapp_check',
+    title: 'dApp & Link Check (Crypto)',
+    outputSchema: dappOutputShape,
+    annotations: annotate('dApp & Link Check (Crypto)'),
+    description:
+      'Open a crypto page — a dApp, airdrop, claim or mint link — and report what it asks a wallet to do. DechoNet opens it in an isolated Chromium (Seoul) with a test wallet that holds nothing (EVM, Solana and TRON): it presses the page\'s "Connect wallet" button once (or one "Claim" button when there is none) and the test wallet in a wallet picker once; it types nothing and submits no form, and the test wallet connects with a burn address and refuses every signature and transaction. ' +
+      'Reported: each wallet request in order with what approving it would allow (unlimited token approvals, setApprovalForAll, Permit/Permit2 signatures, transfers, Solana transactions, TRON approvals and account-permission changes), drainer-kit code markers in the page scripts, a connect button that sends the visitor to another site, and the phishing link check verdict of the same link (including whether it is the brand\'s own domain). ' +
+      "Verdicts: danger, suspicious, official, no_signals, unreachable. no_signals means none of these were seen and is not a statement that the page is harmless: drainers that wait for a second press, show nothing to an automated browser or ask only after a sign-in can go unseen, and on new drainer samples few were caught by wallet requests alone (figures on dechonet.com/methodology); 'unchecked' lists what was not looked at. " +
+      'Every call opens the page (no cached answer), so it takes longer than the other checks, and it has a per-minute rate limit and a daily limit shared by all callers. Only the host, the verdict and the kinds of request are kept (90 days); no API key.',
+    schema: { url: z.string().describe("Address of the page to open (https://…; a bare domain is opened over https)") },
+    handler: async ({ url }) => {
+      try { return formatDapp(await callApi(`/api/util/crypto-dapp?url=${enc(url)}`)); }
       catch (e: any) { return errorResult(e.message); }
     },
   },

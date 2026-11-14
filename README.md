@@ -6,7 +6,7 @@
 
 Domain security reconnaissance for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-**33 tools. No API key needed for non-commercial use.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **MCP server checks** before you connect one, **domain change history** — what changed since the last check — **infrastructure history and pivots** (past nameservers/IPs/issuers, and other domains seen on the same rare infrastructure), a daily **watch** you can set from the agent, and **crypto checks** — a wallet address's chain and OFAC sanctions listing, whether a site is an exchange's official address, and a check before an agent signs or sends.
+**34 tools. No API key needed for non-commercial use.** Phishing/smishing link checks, exposed admin page checks (admin screens, test servers, dev tools left open), DNS, SSL/TLS, post-quantum TLS readiness, HTTP security headers, email authentication, port scan, DNS propagation, reverse DNS, ASN/BGP, RDAP/WHOIS, subdomain discovery (CT logs), lookalike/typosquat detection, OWASP-mapped observable checks, brand-impersonation exposure, go-live readiness, **MCP server checks** before you connect one, **domain change history** — what changed since the last check — **infrastructure history and pivots** (past nameservers/IPs/issuers, and other domains seen on the same rare infrastructure), a daily **watch** you can set from the agent, and **crypto checks** — a wallet address's chain and OFAC sanctions listing, whether a site is an exchange's official address, and a check before an agent signs or sends, and a dApp & link check that opens a page with an empty test wallet and lists what it asked the wallet for.
 
 Every result comes back interpreted, not just as raw JSON: a status, the key numbers, each issue with severity and confidence, and the concrete action to take. That is what an agent needs to tell a human what to do next.
 
@@ -193,7 +193,7 @@ MIT licensed. Issues and PRs welcome.
 
 ## Signed-in tools
 
-These tools appear only when the server has your DechoNet login: set `DECHONET_SESSION_COOKIE` to your own current cookie as it is sent, e.g. `dn_acct=…` (or `dn_acct=…; dn_ws=…` when you work in an agency workspace). Treat it like a password. It is sent only to the exact private endpoints below, never to the public diagnostics, and a public API key does not stand in for it. Without it the server lists the 33 public tools.
+These tools appear only when the server has your DechoNet login: set `DECHONET_SESSION_COOKIE` to your own current cookie as it is sent, e.g. `dn_acct=…` (or `dn_acct=…; dn_ws=…` when you work in an agency workspace). Treat it like a password. It is sent only to the exact private endpoints below, never to the public diagnostics, and a public API key does not stand in for it. Without it the server lists the 34 public tools.
 
 **Business plan — active checks on domains you own** ([plans](https://dechonet.com/pro))
 
